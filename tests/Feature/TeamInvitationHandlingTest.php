@@ -3,6 +3,7 @@
 use App\Livewire\Team\Invitations;
 use App\Livewire\Team\InviteLink;
 use App\Models\InstanceSettings;
+use App\Models\Project;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\User;
@@ -276,4 +277,55 @@ test('still refuses to re-invite an active member', function () {
         ->assertNotDispatched('success');
 
     expect(TeamInvitation::whereEmail($active->email)->exists())->toBeFalse();
+});
+
+test('bulk invites a list and reports each address', function () {
+    $active = User::factory()->create(['email' => 'already@example.com', 'force_password_reset' => false]);
+    $this->teamB->members()->attach($active, ['role' => 'member']);
+
+    $component = Livewire::test(InviteLink::class)
+        ->set('role', 'member')
+        ->set('emails', "alice@school.test\nBob@School.test, already@example.com\nnot-an-email\nalice@school.test")
+        ->call('bulkInvite', false)
+        ->assertDispatched('success');
+
+    $statuses = collect($component->get('bulkResults'))->pluck('status', 'email')->all();
+    expect($statuses)->toBe([
+        'alice@school.test' => 'invited',
+        'bob@school.test' => 'invited',
+        'already@example.com' => 'member',
+        'not-an-email' => 'invalid',
+    ])->and(TeamInvitation::where('team_id', $this->teamB->id)->count())->toBe(2);
+});
+
+test('an invitation limited to a project restricts the member when accepted', function () {
+    $project = Project::factory()->create(['team_id' => $this->teamB->id]);
+
+    Livewire::test(InviteLink::class)
+        ->set('role', 'member')
+        ->set('project', (string) $project->id)
+        ->set('projectRole', 'deployer')
+        ->set('emails', 'student@school.test')
+        ->call('bulkInvite', false);
+
+    $invitation = TeamInvitation::whereEmail('student@school.test')->sole();
+    $student = User::whereEmail('student@school.test')->sole();
+    $invitation->attachUser($student);
+
+    $student = $student->fresh();
+    expect($student->isRestrictedInTeam($this->teamB->id))->toBeTrue()
+        ->and($student->projects()->whereKey($project->id)->first()->pivot->role)->toBe('deployer');
+});
+
+test('bulk invite rejects a project from another team', function () {
+    $foreign = Project::factory()->create(['team_id' => $this->teamA->id]);
+
+    Livewire::test(InviteLink::class)
+        ->set('role', 'member')
+        ->set('project', (string) $foreign->id)
+        ->set('emails', 'student@school.test')
+        ->call('bulkInvite', false)
+        ->assertNotDispatched('success');
+
+    expect(TeamInvitation::whereEmail('student@school.test')->exists())->toBeFalse();
 });

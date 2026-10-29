@@ -134,7 +134,7 @@ class Controller extends BaseController
             $team = $invitation->team;
             $alreadyMember = $user->teams()->where('team_id', $team->id)->exists();
             if (! $alreadyMember) {
-                $user->teams()->attach($team->id, ['role' => $invitation->role]);
+                $invitation->attachUser($user);
             }
 
             $user->forceFill([
@@ -259,7 +259,7 @@ class Controller extends BaseController
 
             return redirect()->route('team.index');
         }
-        $user->teams()->attach($invitation->team->id, ['role' => $invitation->role]);
+        $invitation->attachUser($user);
         $invitation->delete();
         $this->auditInvitationAccepted($user, $invitation, alreadyMember: false);
 
