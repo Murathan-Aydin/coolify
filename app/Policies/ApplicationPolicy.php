@@ -4,10 +4,13 @@ namespace App\Policies;
 
 use App\Models\Application;
 use App\Models\User;
+use App\Policies\Concerns\ChecksProjectAccess;
 use Illuminate\Auth\Access\Response;
 
 class ApplicationPolicy
 {
+    use ChecksProjectAccess;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -23,7 +26,7 @@ class ApplicationPolicy
     {
         $teamId = $this->getTeamId($application);
 
-        return $teamId !== null && $user->teams->contains('id', $teamId);
+        return $teamId !== null && $user->teams->contains('id', $teamId) && $this->canSeeProjectOf($user, $application);
     }
 
     /**
@@ -103,7 +106,7 @@ class ApplicationPolicy
     {
         $teamId = $this->getTeamId($application);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canDeployProjectOf($user, $application));
     }
 
     /**

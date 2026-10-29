@@ -3,10 +3,13 @@
 namespace App\Policies;
 
 use App\Models\User;
+use App\Policies\Concerns\ChecksProjectAccess;
 use Illuminate\Auth\Access\Response;
 
 class DatabasePolicy
 {
+    use ChecksProjectAccess;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -22,7 +25,7 @@ class DatabasePolicy
     {
         $teamId = $this->getTeamId($database);
 
-        return $teamId !== null && $user->teams->contains('id', $teamId);
+        return $teamId !== null && $user->teams->contains('id', $teamId) && $this->canSeeProjectOf($user, $database);
     }
 
     /**
@@ -85,6 +88,16 @@ class DatabasePolicy
         $teamId = $this->getTeamId($database);
 
         return $teamId !== null && $user->isAdminOfTeam($teamId);
+    }
+
+    /**
+     * Determine whether the user can start, stop and restart the database.
+     */
+    public function deploy(User $user, $database): bool
+    {
+        $teamId = $this->getTeamId($database);
+
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canDeployProjectOf($user, $database));
     }
 
     /**

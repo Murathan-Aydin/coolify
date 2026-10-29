@@ -286,7 +286,7 @@ class User extends Authenticatable implements PasskeyUser, SendsEmail
 
     public function teams()
     {
-        return $this->belongsToMany(Team::class)->withPivot('role');
+        return $this->belongsToMany(Team::class)->withPivot('role', 'restricted_to_projects');
     }
 
     public function changelogReads()
@@ -478,6 +478,57 @@ class User extends Authenticatable implements PasskeyUser, SendsEmail
     /**
      * Get the user's role in a specific team
      */
+    public function projects()
+    {
+        return $this->belongsToMany(Project::class)->withPivot('role')->withTimestamps();
+    }
+
+    /**
+     * Whether the user is a member of the team who only sees the projects assigned to them.
+     */
+    public function isRestrictedInTeam(int $teamId): bool
+    {
+        $team = $this->teams->where('id', $teamId)->first();
+
+        return $team !== null
+            && ! in_array($team->pivot->role, ['admin', 'owner'], true)
+            && (bool) $team->pivot->restricted_to_projects;
+    }
+
+    /**
+     * Whether the user may see the project: any member of its team, unless restricted to other projects.
+     */
+    public function canAccessProject(?Project $project): bool
+    {
+        if (! $project || ! $this->teams->contains('id', $project->team_id)) {
+            return false;
+        }
+
+        return ! $this->isRestrictedInTeam($project->team_id)
+            || $this->projects()->whereKey($project->id)->exists();
+    }
+
+    public function hasDeployerProjects(): bool
+    {
+        return once(fn () => $this->projects()->wherePivot('role', 'deployer')->exists());
+    }
+
+    /**
+     * Whether the user may deploy, start, stop and restart resources of the project.
+     */
+    public function canDeployProject(?Project $project): bool
+    {
+        if (! $project) {
+            return false;
+        }
+        if ($this->isAdminOfTeam($project->team_id)) {
+            return true;
+        }
+
+        return $this->canAccessProject($project)
+            && $this->projects()->whereKey($project->id)->wherePivot('role', 'deployer')->exists();
+    }
+
     public function roleInTeam(int $teamId): ?string
     {
         $team = $this->teams->where('id', $teamId)->first();

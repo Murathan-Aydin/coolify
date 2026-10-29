@@ -64,6 +64,28 @@ class Member extends Component
         }
     }
 
+    public function setProjectRestriction(bool $restricted)
+    {
+        try {
+            $this->authorize('manageMembers', currentTeam());
+            if ($this->getMemberRole() !== Role::MEMBER->value) {
+                throw new \Exception('Only members can be limited to assigned projects.');
+            }
+
+            $teamId = currentTeam()->id;
+            $this->member->teams()->updateExistingPivot($teamId, ['restricted_to_projects' => $restricted]);
+            auditLog('ui.team_member.project_restriction_updated', [
+                'team_id' => $teamId,
+                'member_id' => $this->member->id,
+                'member_email' => $this->member->email,
+                'restricted_to_projects' => $restricted,
+            ]);
+            $this->dispatch('reloadWindow');
+        } catch (\Exception $e) {
+            $this->dispatch('error', $e->getMessage());
+        }
+    }
+
     public function remove()
     {
         try {

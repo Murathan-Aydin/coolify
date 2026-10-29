@@ -33,6 +33,10 @@
             x-on:click="roleFilter = roleFilter === @js(data_get($member, 'pivot.role')) ? 'all' : @js(data_get($member, 'pivot.role')); page = 1">
             {{ data_get($member, 'pivot.role') }}
         </button>
+        @if (data_get($member, 'pivot.restricted_to_projects'))
+            <span class="ml-1 rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning"
+                title="Only sees the projects assigned in each project's settings">assigned projects</span>
+        @endif
     </div>
     @can('manageMembers', currentTeam())
         <div class="flex items-center">
@@ -50,7 +54,7 @@
                     <template x-teleport="body">
                         <div x-show="open" x-cloak role="menu" x-anchor.bottom-end.fixed.offset.4="$refs.trigger"
                             @click.outside="if (! $refs.trigger.contains($event.target)) open = false"
-                            class="listbox-panel w-36! min-w-0! z-50!">
+                            class="listbox-panel w-52! min-w-0! z-50!">
                             @if (Auth::user()->isOwner())
                                 @if (data_get($member, 'pivot.role') !== 'owner')
                                     <button type="button" class="listbox-option justify-start!" wire:click="makeOwner"
@@ -82,6 +86,13 @@
                                         Make admin
                                     </button>
                                 @endif
+                            @endif
+                            @if (data_get($member, 'pivot.role') === 'member')
+                                <button type="button" class="listbox-option justify-start!"
+                                    wire:click="setProjectRestriction({{ data_get($member, 'pivot.restricted_to_projects') ? 'false' : 'true' }})"
+                                    @click="open = false">
+                                    {{ data_get($member, 'pivot.restricted_to_projects') ? 'Allow all projects' : 'Limit to assigned projects' }}
+                                </button>
                             @endif
                             <div class="my-1 border-t border-neutral-200 dark:border-white/[0.08]"></div>
                             <button type="button" class="listbox-option justify-start! text-error! hover:text-error!"

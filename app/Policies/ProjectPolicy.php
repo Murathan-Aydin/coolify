@@ -4,9 +4,12 @@ namespace App\Policies;
 
 use App\Models\Project;
 use App\Models\User;
+use App\Policies\Concerns\ChecksProjectAccess;
 
 class ProjectPolicy
 {
+    use ChecksProjectAccess;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -20,7 +23,7 @@ class ProjectPolicy
      */
     public function view(User $user, Project $project): bool
     {
-        return $user->teams->contains('id', $project->team_id);
+        return $user->canAccessProject($project);
     }
 
     /**

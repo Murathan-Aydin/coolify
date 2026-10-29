@@ -4,9 +4,12 @@ namespace App\Policies;
 
 use App\Models\Service;
 use App\Models\User;
+use App\Policies\Concerns\ChecksProjectAccess;
 
 class ServicePolicy
 {
+    use ChecksProjectAccess;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -22,7 +25,7 @@ class ServicePolicy
     {
         $teamId = $this->getTeamId($service);
 
-        return $teamId !== null && $user->teams->contains('id', $teamId);
+        return $teamId !== null && $user->teams->contains('id', $teamId) && $this->canSeeProjectOf($user, $service);
     }
 
     /**
@@ -76,7 +79,7 @@ class ServicePolicy
     {
         $teamId = $this->getTeamId($service);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canDeployProjectOf($user, $service));
     }
 
     /**
@@ -106,7 +109,7 @@ class ServicePolicy
     {
         $teamId = $this->getTeamId($service);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canDeployProjectOf($user, $service));
     }
 
     private function getTeamId(Service $service): ?int

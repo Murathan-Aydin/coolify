@@ -4,9 +4,12 @@ namespace App\Policies;
 
 use App\Models\Environment;
 use App\Models\User;
+use App\Policies\Concerns\ChecksProjectAccess;
 
 class EnvironmentPolicy
 {
+    use ChecksProjectAccess;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -22,7 +25,7 @@ class EnvironmentPolicy
     {
         $teamId = $this->getTeamId($environment);
 
-        return $teamId !== null && $user->teams->contains('id', $teamId);
+        return $teamId !== null && $user->teams->contains('id', $teamId) && $this->canSeeProjectOf($user, $environment);
     }
 
     /**

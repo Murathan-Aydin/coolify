@@ -81,7 +81,7 @@
 
             <div class="shrink-0">
                 @if ($database->destination->server->isFunctional())
-                    @can('manage', $database)
+                    @can('deploy', $database)
                         <x-split-action id="database-mobile-actions">
                             @if (! $databaseStatus->startsWith('exited'))
                                 <x-slot:main x-bind:disabled="busy"
@@ -118,7 +118,7 @@
                         <x-deploying-indicator label="Working" class="mr-1" />
                     @endif
                     @if ($database->destination->server->isFunctional())
-                        @can('manage', $database)
+                        @can('deploy', $database)
                             <x-split-action id="database-desktop-actions">
                                 @if (! $databaseStatus->startsWith('exited'))
                                     <x-slot:main x-bind:disabled="busy"

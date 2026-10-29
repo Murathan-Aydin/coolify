@@ -47,7 +47,15 @@ class Project extends BaseModel
      */
     public static function ownedByCurrentTeam()
     {
-        return Project::whereTeamId(currentTeam()->id)->orderByRaw('LOWER(name)');
+        $teamId = currentTeam()->id;
+        $user = auth()->user();
+
+        return Project::whereTeamId($teamId)
+            ->when(
+                $user && $user->isRestrictedInTeam($teamId),
+                fn ($query) => $query->whereHas('members', fn ($members) => $members->whereKey($user->id))
+            )
+            ->orderByRaw('LOWER(name)');
     }
 
     /**
@@ -197,5 +205,10 @@ class Project extends BaseModel
         }
 
         return route('project.show', ['project_uuid' => $this->uuid]);
+    }
+
+    public function members()
+    {
+        return $this->belongsToMany(User::class)->withPivot('role')->withTimestamps();
     }
 }
