@@ -66,8 +66,9 @@ class InviteLink extends Component
 
             $this->email = strtolower($this->email);
 
-            $member_emails = currentTeam()->members()->get()->pluck('email');
-            if ($member_emails->contains($this->email)) {
+            $existingMember = currentTeam()->members()->where('email', $this->email)->first();
+            // A member who never set a password is locked out, so they get a fresh login link instead of an error.
+            if ($existingMember && $existingMember->force_password_reset !== true) {
                 return handleError(livewire: $this, customErrorMessage: "$this->email is already a member of ".currentTeam()->name.'.');
             }
             $invitation = TeamInvitation::ownedByCurrentTeam()->whereEmail($this->email)->first();
@@ -86,7 +87,7 @@ class InviteLink extends Component
             $user = User::whereEmail($this->email)->first();
 
             // A user who never set a password cannot log in, so they get a magic link with a new temporary password.
-            if (is_null($user) || $user->isUnusedInvitedAccount()) {
+            if (is_null($user) || $user->isUnusedInvitedAccount() || $existingMember) {
                 $password = Str::password();
                 if (is_null($user)) {
                     $user = User::create([

@@ -221,7 +221,7 @@ class Controller extends BaseController
         $user = User::whereEmail($invitation->email)->firstOrFail();
 
         if (Auth::id() !== $user->id) {
-            abort(400, 'You are not allowed to accept this invitation.');
+            abort(400, "This invitation is for {$invitation->email}. Log out and sign in with that account to accept it.");
         }
 
         if (! $invitation->isValid()) {
@@ -246,7 +246,7 @@ class Controller extends BaseController
         $user = User::whereEmail($invitation->email)->firstOrFail();
 
         if (Auth::id() !== $user->id) {
-            abort(400, 'You are not allowed to accept this invitation.');
+            abort(400, "This invitation is for {$invitation->email}. Log out and sign in with that account to accept it.");
         }
 
         if (! $invitation->isValid()) {

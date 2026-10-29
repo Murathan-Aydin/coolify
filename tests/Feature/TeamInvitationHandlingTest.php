@@ -250,3 +250,30 @@ test('keeps the inviter signed in when the invitee password is rotated', functio
     $this->assertAuthenticatedAs($this->ownerB);
     expect(data_get(session('currentTeam'), 'id'))->toBe($this->teamB->id);
 });
+
+test('re-invites a member who never set a password with a fresh login link', function () {
+    $this->teamB->members()->attach($this->pendingUser, ['role' => 'member']);
+    $this->invitationA->delete();
+
+    Livewire::test(InviteLink::class)
+        ->set('email', $this->pendingUser->email)
+        ->set('role', 'member')
+        ->call('viaLink')
+        ->assertDispatched('success');
+
+    $invitation = TeamInvitation::where('team_id', $this->teamB->id)->whereEmail($this->pendingUser->email)->firstOrFail();
+    expect($invitation->link)->toContain('/auth/link?token=');
+});
+
+test('still refuses to re-invite an active member', function () {
+    $active = User::factory()->create(['email' => 'active@example.com', 'force_password_reset' => false]);
+    $this->teamB->members()->attach($active, ['role' => 'member']);
+
+    Livewire::test(InviteLink::class)
+        ->set('email', $active->email)
+        ->set('role', 'member')
+        ->call('viaLink')
+        ->assertNotDispatched('success');
+
+    expect(TeamInvitation::whereEmail($active->email)->exists())->toBeFalse();
+});
