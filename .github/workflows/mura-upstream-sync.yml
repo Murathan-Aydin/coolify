@@ -46,6 +46,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin upstream-sync 2>/dev/null && git merge-base --is-ancestor upstream/main origin/upstream-sync; then
+            echo "upstream-sync already has these commits, nothing new to report."
+            echo "result=unchanged" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git switch -C upstream-sync
           if git merge --no-edit upstream/main -m "chore: merge upstream coollabsio/coolify@${UPSTREAM_SHA}"; then
             git push --force origin upstream-sync
@@ -60,17 +65,28 @@ jobs:
             echo "result=conflict" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Open or update the pull request
+      # Created by github-actions[bot] (not SYNC_TOKEN, which is my own account) so that assigning me
+      # and requesting my review sends me a notification email.
+      - name: Open or update the pull request and notify me
         if: steps.merge.outputs.result == 'clean'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          body="Brings ${BEHIND} new commits from coollabsio/coolify (up to ${UPSTREAM_SHA}).
+          log=$(git log --no-merges --format='- %s (%h)' main..upstream/main | head -50)
+          body="${BEHIND} new commits in coollabsio/coolify (up to ${UPSTREAM_SHA}).
+
+          ${log}
 
           Before merging, follow FORK.md: pull locally, run migrations and the team tests."
           if gh pr view upstream-sync --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null | grep -q OPEN; then
             gh pr edit upstream-sync --repo "$GITHUB_REPOSITORY" --body "$body"
+            gh pr comment upstream-sync --repo "$GITHUB_REPOSITORY" \
+              --body "@${OWNER} new upstream commits arrived: now ${BEHIND} behind, up to ${UPSTREAM_SHA}."
           else
             gh pr create --repo "$GITHUB_REPOSITORY" --base main --head upstream-sync \
-              --title "Sync with upstream Coolify (${UPSTREAM_SHA})" --body "$body"
+              --title "Sync with upstream Coolify (${UPSTREAM_SHA})" --body "$body" \
+              --assignee "$OWNER" --reviewer "$OWNER"
           fi
 
       - name: Report conflicts

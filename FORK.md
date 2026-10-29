@@ -26,10 +26,13 @@ On ne peut pas le déclencher au moment exact d'un push officiel : GitHub ne pr�
 | Situation | Ce qui se passe | Ce que je fais |
 |---|---|---|
 | Rien de nouveau | Rien. | Rien. |
-| Nouveaux commits, sans conflit | Une PR « Sync with upstream Coolify » s'ouvre de `upstream-sync` vers `main`. | Je suis la section « Valider une mise à jour », puis je fusionne la PR. |
-| Conflit | Le run échoue en rouge, GitHub m'envoie un e-mail et le résumé du run liste les fichiers en conflit. | Je suis la section « Conflits ». |
+| Nouveaux commits, sans conflit | Une PR « Sync with upstream Coolify » s'ouvre de `upstream-sync` vers `main`, avec la liste des commits officiels. Elle m'est assignée et ma review est demandée, donc je reçois un e-mail. S'il arrive encore du nouveau avant que je fusionne, un commentaire me mentionne, et je reçois un nouvel e-mail. | Je suis la section « Valider une mise à jour », puis je fusionne la PR. |
+| Conflit | Le run échoue en rouge, GitHub m'envoie un e-mail et le résumé du run liste les fichiers en conflit. L'e-mail revient toutes les 6 h tant que ce n'est pas réglé. | Je suis la section « Conflits ». |
 
 Le robot ne touche jamais `main` directement. Rien n'est déployé sans moi.
+
+Les e-mails passent par les notifications GitHub. Il faut vérifier que **Settings → Notifications** (de mon compte GitHub) a bien
+« Email » coché pour *Participating, @mentions and custom* et pour *Actions* (« Only notify for failed workflows »).
 
 ### Mise en place (une seule fois)
 1. Dans l'onglet **Actions** du fork, cliquer sur « I understand my workflows, go ahead and enable them ».
