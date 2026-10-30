@@ -572,6 +572,12 @@ html[data-glass] body :is(.application-settings-section, .empty-state):not(:is(.
     box-shadow: var(--glass-shadow);
 }
 
+/* isolation keeps each surface's open menu inside its stacking context, under the next surface.
+   A surface with an open menu or focus comes first. */
+html[data-glass] body :is(.application-settings-section, .empty-state):not(:is(.application-settings-section, .application-settings-section-body) *):is(:focus-within, :has([aria-expanded="true"])) {
+    z-index: 30;
+}
+
 html[data-glass] body .application-settings-section-body {
     border-radius: 0.9rem;
     border-color: var(--glass-well-edge);
@@ -643,6 +649,10 @@ html[data-glass] body :is(.application-settings-section, .empty-state):not(:is(.
         pointer-events: none;
         background-color: var(--glass-fill);
         backdrop-filter: var(--glass-blur);
+    }
+
+    html[data-glass] body:not(#_) .app-main :is([class~="rounded-xl"][class~="border"][class~="bg-white"], [class~="rounded-xl"][class~="dark:bg-white/[0.05]"], .data-table, .empty-state-well):not(:is(.application-settings-section, .application-settings-section-body) *):is(:focus-within, :has([aria-expanded="true"])) {
+        z-index: 30;
     }
 
     html[data-glass] body:not(#_) .app-main [class~="rounded-xl"]:is([class~="bg-white"], [class~="dark:bg-white/[0.05]"]) > [class~="border-b"]:first-child {
