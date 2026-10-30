@@ -179,6 +179,10 @@
                         return [...$item, 'children' => $children, 'href' => $children[0]['href'], 'active' => collect($children)->contains('active', true)];
                     })
                     ->all());
+                // Members restricted to assigned projects only get the pages they can open (see RestrictProjectScopedMembers).
+                if (auth()->user()?->isRestrictedInTeam(currentTeam()->id)) {
+                    $navSections = collect(['Workspace' => collect($navSections['Workspace'])->whereIn('label', ['Dashboard', 'Projects'])->values()->all()]);
+                }
                 $activeSubmenu = $navSections->flatten(1)->first(fn (array $item): bool => isset($item['children']) && $item['active']);
                 // Resource menus by depth, registered by registerMainNavContext() (e.g. from
                 // components/main-nav-menu.blade.php). Each one teleports itself into #main-nav-context-{depth}

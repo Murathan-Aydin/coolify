@@ -115,3 +115,43 @@ test('admins toggle the project restriction from the team members list', functio
 
     expect($this->student->fresh()->isRestrictedInTeam($this->team->id))->toBeFalse();
 });
+
+test('a restricted member cannot open team-wide pages', function () {
+    $this->actingAs($this->student);
+    session(['currentTeam' => $this->team]);
+    $server = Server::query()->where('team_id', $this->team->id)->firstOrFail();
+
+    foreach ([
+        route('server.index'),
+        route('server.show', ['server_uuid' => $server->uuid]),
+        route('server.proxy.certificates', ['server_uuid' => $server->uuid]),
+        route('server.resources', ['server_uuid' => $server->uuid]),
+        route('security.private-key.index'),
+        route('source.all'),
+        route('shared-variables.team.index'),
+        route('notifications.email'),
+        route('team.member.index'),
+        route('tags.show'),
+        route('dashboard.canvas'),
+        '/canvas/api/servers',
+    ] as $url) {
+        $this->get($url)->assertForbidden();
+    }
+
+    expect(Gate::forUser($this->student->fresh())->allows('view', $server))->toBeFalse();
+});
+
+test('a restricted member still opens the dashboard and assigned projects', function () {
+    $this->actingAs($this->student);
+    session(['currentTeam' => $this->team]);
+
+    $this->get(route('dashboard'))->assertOk()->assertDontSee($this->projectB->name.'</');
+    $this->get(route('project.show', ['project_uuid' => $this->projectA->uuid]))->assertOk();
+});
+
+test('owners keep opening team-wide pages', function () {
+    $this->actingAs($this->owner);
+    session(['currentTeam' => $this->team]);
+
+    $this->get(route('server.index'))->assertOk();
+});

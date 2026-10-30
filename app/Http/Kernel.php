@@ -21,6 +21,7 @@ use App\Http\Middleware\PreventRequestsDuringMaintenance;
 use App\Http\Middleware\RedirectIfAuthenticated;
 use App\Http\Middleware\RequirePassword;
 use App\Http\Middleware\RequireTeamTwoFactor;
+use App\Http\Middleware\RestrictProjectScopedMembers;
 use App\Http\Middleware\TrimStrings;
 use App\Http\Middleware\TrustProxies;
 use App\Http\Middleware\ValidateSignature;
@@ -82,6 +83,7 @@ class Kernel extends HttpKernel
             CheckForcePasswordReset::class,
             DecideWhatToDoWithUser::class,
             RequireTeamTwoFactor::class,
+            RestrictProjectScopedMembers::class,
 
         ],
 

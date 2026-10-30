@@ -20,7 +20,8 @@ class ServerPolicy
      */
     public function view(User $user, Server $server): bool
     {
-        return $user->teams->contains('id', $server->team_id);
+        // Members restricted to assigned projects do not see servers (they list every resource).
+        return $user->teams->contains('id', $server->team_id) && ! $user->isRestrictedInTeam($server->team_id);
     }
 
     /**

@@ -9,6 +9,7 @@
 
     @php
         $dashboardItemLimit = \App\Livewire\Dashboard::ITEM_LIMIT;
+        $restrictedToProjects = auth()->user()->isRestrictedInTeam(currentTeam()->id);
         $hasTrafficAnalytics = $servers->contains(fn ($server) => $server->isTrafficAnalyticsEnabled());
         $iconButton = 'card-icon-button flex size-6.5 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-black';
         // Same look as $iconButton, sized to the 20px section title it sits next to.
@@ -40,11 +41,13 @@
              It stays one column while the activity side has no section (no deployments, no traffic). --}}
         <div class="grid min-w-0 gap-8 xl:items-start xl:has-[.dashboard-activity_section]:grid-cols-[minmax(0,1fr)_22rem] 2xl:has-[.dashboard-activity_section]:grid-cols-[minmax(0,1fr)_26rem]">
         <div class="dashboard-activity hidden min-w-0 has-[section]:flex flex-col gap-8 xl:order-last">
+        @unless ($restrictedToProjects)
         <livewire:dashboard.active-deployments />
 
         @if ($hasTrafficAnalytics)
             <livewire:dashboard.traffic-analytics />
         @endif
+        @endunless
         </div>
 
         <div class="flex min-w-0 flex-col gap-8">
@@ -237,6 +240,7 @@
             @endif
         </section>
 
+        @unless ($restrictedToProjects)
         <section class="@container mb-0! min-w-0" x-data="{
             viewMode: @js($this->listView('dashboard_servers', 'table')),
             setViewMode(mode) {
@@ -430,6 +434,7 @@
                 </div>
             @endif
         </section>
+        @endunless
         </div>
         </div>
     </div>

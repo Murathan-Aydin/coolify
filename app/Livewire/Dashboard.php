@@ -36,14 +36,17 @@ class Dashboard extends Component
 
     public function mount()
     {
-        if ($this->prefersCanvasView('dashboard')) {
+        // Members restricted to assigned projects see only their projects: no servers, keys or team activity.
+        $restricted = auth()->user()->isRestrictedInTeam(currentTeam()->id);
+
+        if (! $restricted && $this->prefersCanvasView('dashboard')) {
             $this->redirectRoute('dashboard.canvas', navigate: true);
 
             return;
         }
 
-        $this->privateKeys = PrivateKey::ownedByCurrentTeamCached();
-        $this->servers = Server::ownedByCurrentTeamCached();
+        $this->privateKeys = $restricted ? collect() : PrivateKey::ownedByCurrentTeamCached();
+        $this->servers = $restricted ? collect() : Server::ownedByCurrentTeamCached();
         $this->projects = Project::ownedByCurrentTeam()
             ->with(['environments:id,uuid,name,project_id'])
             ->withCount([
