@@ -102,6 +102,41 @@
     <section class="application-settings-section">
         <div class="application-settings-section-header">
             <div>
+                <h2>Liquid Glass</h2>
+                <p>Turn cards, the sidebar and the top bar into frosted glass, like macOS. Looks best with a background image.</p>
+            </div>
+        </div>
+        <div class="application-settings-section-body flex flex-col gap-4">
+            <div class="grid gap-3 sm:grid-cols-2">
+                @foreach ([
+                    ['value' => 'false', 'label' => 'Off', 'description' => 'Solid surfaces.'],
+                    ['value' => 'true', 'label' => 'On', 'description' => 'Translucent, blurred surfaces.'],
+                ] as $option)
+                    <button type="button" @click="setGlass({{ $option['value'] }})"
+                        class="rounded-[10px] border border-neutral-200 bg-white p-3 text-left transition-[border-color,box-shadow] hover:border-neutral-300 dark:border-white/[0.07] dark:bg-white/[0.05] dark:hover:border-white/[0.12]"
+                        :class="glass === {{ $option['value'] }}
+                            ? 'border-coollabs! bg-coollabs/[0.06]! ring-2 ring-coollabs/25 dark:border-brand-light! dark:bg-brand-light/[0.08]! dark:ring-brand-light/25'
+                            : ''">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-semibold text-black dark:text-fg">{{ $option['label'] }}</span>
+                            <x-reicon name="check-circle" class="size-4 text-coollabs dark:text-brand-light"
+                                x-show="glass === {{ $option['value'] }}" x-cloak />
+                        </div>
+                        <p class="mt-1 text-xs leading-5 text-neutral-500 dark:text-fg-dim">{{ $option['description'] }}</p>
+                    </button>
+                @endforeach
+            </div>
+            <label x-show="glass" x-cloak class="flex max-w-md flex-col gap-1 text-xs text-neutral-500 dark:text-fg-dim">
+                <span class="flex justify-between"><span>Clear</span><span>Tinted</span></span>
+                <input type="range" min="0" max="100" step="5" :value="glassTint"
+                    @input="setGlassTint($event.target.value)" class="accent-coollabs dark:accent-brand-light">
+            </label>
+        </div>
+    </section>
+
+    <section class="application-settings-section">
+        <div class="application-settings-section-header">
+            <div>
                 <h2>Page width</h2>
                 <p>Choose how content uses the available browser width.</p>
             </div>

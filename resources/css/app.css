@@ -516,6 +516,110 @@ html:is(.dark, [data-theme="custom"])[data-bg-image] :is(.app-sidebar .sidebar-n
     background-color: color-mix(in oklab, var(--color-app) 70%, transparent);
 }
 
+/* Liquid Glass from the Appearance page: cards, the sidebar and the top bar become
+   translucent and blur what is behind them. --glass-tint (0 clear .. 100 tinted) sets
+   how much of the surface color covers the glass. body raises the specificity above
+   the background-image and floating-navigation rules. */
+html[data-glass] {
+    --glass-alpha: calc(12% + var(--glass-tint, 50) * 0.8%);
+    --glass-base: #ffffff;
+    --glass-edge: rgb(255 255 255 / 0.6);
+    --glass-shadow: 0 8px 32px rgb(0 0 0 / 0.08);
+    --glass-blur: blur(30px) saturate(180%);
+    --glass-well: rgb(255 255 255 / 0.35);
+    --glass-well-edge: rgb(0 0 0 / 0.06);
+}
+
+html:is(.dark, [data-theme="custom"])[data-glass] {
+    --glass-base: var(--color-app);
+    --glass-edge: rgb(255 255 255 / 0.14);
+    --glass-shadow: 0 8px 32px rgb(0 0 0 / 0.35);
+    --glass-well: rgb(255 255 255 / 0.04);
+    --glass-well-edge: rgb(255 255 255 / 0.08);
+}
+
+html[data-glass] body {
+    --glass-fill: color-mix(in oklab, var(--glass-base) var(--glass-alpha), transparent);
+}
+
+/* Coolify paints dark cards with an opaque color-mix, so the glass sets the background itself. */
+html[data-glass] body :is(.application-settings-section, .empty-state):not(:is(.application-settings-section, .application-settings-section-body) *) {
+    background: var(--glass-fill);
+    border-color: var(--glass-edge);
+    border-radius: 1.25rem;
+    box-shadow: inset 0 1px 0 var(--glass-edge), var(--glass-shadow);
+    backdrop-filter: var(--glass-blur);
+}
+
+html[data-glass] body .application-settings-section-body {
+    border-radius: 0.9rem;
+    border-color: var(--glass-well-edge);
+    background: var(--glass-well);
+    box-shadow: none;
+}
+
+html[data-glass] body :is(.app-sidebar .sidebar-nav, .app-topbar-brand) {
+    --glass-fill: color-mix(in oklab, var(--color-app) var(--glass-alpha), transparent);
+    background-color: var(--glass-fill);
+    backdrop-filter: var(--glass-blur);
+}
+
+html[data-glass]:not(.dark):not([data-theme="custom"]) body :is(.app-sidebar .sidebar-nav, .app-topbar-brand) {
+    --glass-fill: color-mix(in oklab, var(--color-neutral-50) var(--glass-alpha), transparent);
+}
+
+/* The top bar cannot take backdrop-filter itself: that would make it the containing block of
+   the fixed resource actions panel inside it. A pseudo-element behind its content carries the
+   glass instead. The doubled [data-glass] outranks the floating navigation's panel colors. */
+html[data-glass][data-glass] body .app-topbar {
+    background-color: transparent;
+    backdrop-filter: none;
+    box-shadow: inset 0 -1px 0 var(--glass-edge);
+}
+
+html[data-glass][data-glass] body .app-topbar::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background-color: var(--glass-fill);
+    backdrop-filter: var(--glass-blur);
+}
+
+html[data-glass][data-glass] body #resource-action-hud-slot:not(:empty) {
+    background-color: var(--glass-fill);
+    border-color: var(--glass-edge);
+    backdrop-filter: var(--glass-blur);
+}
+
+/* Tables, collection tiles and empty states outside cards (dashboard, servers, resources,
+   tags, …). Coolify's dark mode forces these opaque with !important and long :not() chains,
+   so the glass uses !important and body:not(#_) (an id's specificity) to win. Those rules
+   live in @layer utilities, where !important beats unlayered CSS, so these live there too. */
+@layer utilities {
+    html[data-glass] body:not(#_) .app-main :is([class~="rounded-xl"][class~="border"][class~="bg-white"], [class~="rounded-xl"][class~="dark:bg-white/[0.05]"], .data-table, .empty-state-well):not(:is(.application-settings-section, .application-settings-section-body) *) {
+        background-color: var(--glass-fill) !important;
+        border-color: var(--glass-edge) !important;
+        backdrop-filter: var(--glass-blur);
+    }
+
+    html[data-glass] body:not(#_) .app-main [class~="rounded-xl"]:is([class~="bg-white"], [class~="dark:bg-white/[0.05]"]) > [class~="border-b"]:first-child {
+        background: var(--glass-well) !important;
+    }
+}
+
+/* Floating layer (menus, toasts, the unsaved-changes bar): thicker glass, like macOS sheets. */
+html[data-glass] body :is(.surface-popover, [class~="shadow-modal"]) {
+    background-color: color-mix(in oklab, var(--glass-base) calc(var(--glass-alpha) + 25%), transparent) !important;
+    border-color: var(--glass-edge) !important;
+    backdrop-filter: blur(40px) saturate(180%);
+}
+
+html[data-glass][data-nav-style="floating"] body :is(.app-topbar, .app-sidebar > div > nav) {
+    border-color: var(--glass-edge);
+}
+
 body {
     /* overflow-x: clip (not hidden) — hidden creates a scroll containment that
        breaks position:sticky on settings sidebars and other in-page pins. */

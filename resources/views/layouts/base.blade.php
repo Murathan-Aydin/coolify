@@ -132,9 +132,21 @@
             root.style.setProperty('--bg-image', `url("${image}")`);
             root.style.setProperty('--bg-image-dim', `${localStorage.backgroundDim ?? 70}%`);
         };
+        // Liquid Glass (Appearance page): cards, sidebar and top bar become frosted glass.
+        // The tint goes from 0 (clear) to 100 (tinted, almost opaque).
+        window.applyGlass = () => {
+            const root = document.documentElement;
+            if (localStorage.glass !== 'on') {
+                delete root.dataset.glass;
+                return;
+            }
+            root.dataset.glass = '';
+            root.style.setProperty('--glass-tint', localStorage.glassTint ?? 50);
+        };
         window.applyStoredTheme = () => {
             const root = document.documentElement;
             window.applyBackgroundImage();
+            window.applyGlass();
             const theme = localStorage.theme === 'purple' ? 'custom' : (localStorage.theme || 'dark');
             root.dataset.navStyle = localStorage.navStyle === 'floating' ? 'floating' : 'default';
             root.dataset.navItems = localStorage.navItems === 'flat' ? 'flat' : '3d';
@@ -347,6 +359,18 @@
                 this.backgroundDim = Number(value);
                 localStorage.setItem('backgroundDim', this.backgroundDim);
                 window.applyBackgroundImage();
+            },
+            glass: localStorage.getItem('glass') === 'on',
+            glassTint: Number(localStorage.getItem('glassTint') ?? 50),
+            setGlass(enabled) {
+                this.glass = enabled;
+                localStorage.setItem('glass', enabled ? 'on' : 'off');
+                window.applyGlass();
+            },
+            setGlassTint(value) {
+                this.glassTint = Number(value);
+                localStorage.setItem('glassTint', this.glassTint);
+                window.applyGlass();
             },
             setChartTimes(value) {
                 this.chartTimes = value;
