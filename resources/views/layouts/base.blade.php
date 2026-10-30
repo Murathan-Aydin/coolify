@@ -79,6 +79,9 @@
             // The built-in Dark theme, not a custom theme. Its colors start the fields when the user edits it. The sidebar is
             // the color that the Dark sidebar shows: #120e1a with its 9% purple wash.
             { name: 'Coolify', theme: null, swatch: { sidebar: '#1a0f2d', selected: '#1c1c1c', accent: '#6b16ed', background: '#0a0a0a' } },
+            // macOS system colors: window and sidebar grays with the system blue accent.
+            { name: 'Apple Dark', theme: { sidebar: '#2a2a2d', selected: '#3a3a3d', accent: '#0a84ff', background: '#1e1e20' } },
+            { name: 'Apple Light', theme: { sidebar: '#e8e8ed', selected: '#d6d6dc', accent: '#007aff', background: '#f5f5f7' } },
             { name: 'Midnight', theme: { sidebar: '#0f172a', selected: '#2e4a7d', accent: '#f2458f', background: '#1a2338' } },
             { name: 'Forest', theme: { sidebar: '#12342b', selected: '#2c6e57', accent: '#f4b860', background: '#1b2a25' } },
             { name: 'Ember', theme: { sidebar: '#3b1410', selected: '#8f2d1f', accent: '#ffb86b', background: '#241816' } },
