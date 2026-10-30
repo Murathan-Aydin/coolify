@@ -498,9 +498,21 @@ html:is(.dark, [data-theme="custom"])[data-bg-image] {
     --bg-image-tint: color-mix(in oklab, var(--color-app) var(--bg-image-dim), transparent);
 }
 
-/* body raises the specificity above the floating navigation's dotted backdrop on .app-shell. */
-html[data-bg-image] body .app-shell {
-    background: linear-gradient(var(--bg-image-tint), var(--bg-image-tint)), var(--bg-image) center / cover fixed;
+/* The picture sits on a fixed layer behind the page rather than on a background-attachment: fixed
+   background: Chrome repaints glass (backdrop-filter) over fixed backgrounds badly while pages change,
+   leaving stale dark bands. body:not(#_) outranks the floating navigation's dotted backdrop. */
+html[data-bg-image] body:not(#_),
+html[data-bg-image] body:not(#_) .app-shell {
+    background: transparent;
+}
+
+html[data-bg-image] body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(var(--bg-image-tint), var(--bg-image-tint)), var(--bg-image) center / cover no-repeat;
 }
 
 html[data-bg-image] .app-main {
