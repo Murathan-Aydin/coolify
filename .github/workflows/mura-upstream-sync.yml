@@ -1,5 +1,6 @@
-# Fork only: checks coollabsio/coolify for new commits every 6 hours, merges them
-# into the "upstream-sync" branch and opens a pull request into main.
+# Fork only: checks coollabsio/coolify every 6 hours for a new release tag (v4.5.4, ...).
+# When one exists that main does not contain yet, merges it into the "upstream-sync" branch
+# and opens a pull request into main (which emails me). No new release: the run ends green, silently.
 # On conflicts, the run fails (GitHub emails you) and lists the files. See FORK.md.
 name: Upstream sync (fork)
 
@@ -20,39 +21,47 @@ jobs:
   sync:
     if: github.repository == 'Murathan-Aydin/coolify'
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Fetch upstream
+      - name: Find the latest upstream release
+        id: release
         run: |
           git remote add upstream https://github.com/coollabsio/coolify.git
-          git fetch --tags upstream main
-          echo "BEHIND=$(git rev-list --count main..upstream/main)" >> "$GITHUB_ENV"
-          echo "UPSTREAM_SHA=$(git rev-parse --short upstream/main)" >> "$GITHUB_ENV"
+          tag=$(git ls-remote --tags --refs upstream 'v*' | awk -F/ '{print $3}' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          git fetch --no-tags upstream "refs/tags/${tag}:refs/tags/${tag}"
+          echo "TAG=${tag}" >> "$GITHUB_ENV"
+          if git merge-base --is-ancestor "$tag" main; then
+            echo "main already contains ${tag}, nothing to do."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          elif git fetch origin upstream-sync 2>/dev/null && git merge-base --is-ancestor "$tag" origin/upstream-sync; then
+            echo "upstream-sync already has ${tag}, its pull request is already open."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New upstream release: ${tag}"
+            echo "BEHIND=$(git rev-list --count "main..${tag}")" >> "$GITHUB_ENV"
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Nothing to do
-        if: env.BEHIND == '0'
-        run: echo "main already contains upstream/main."
-
-      - name: Merge upstream into upstream-sync
-        if: env.BEHIND != '0'
+      - name: Merge the release into upstream-sync
+        if: steps.release.outputs.new == 'true'
         id: merge
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git fetch origin upstream-sync 2>/dev/null && git merge-base --is-ancestor upstream/main origin/upstream-sync; then
-            echo "upstream-sync already has these commits, nothing new to report."
-            echo "result=unchanged" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           git switch -C upstream-sync
-          if git merge --no-edit upstream/main -m "chore: merge upstream coollabsio/coolify@${UPSTREAM_SHA}"; then
+          if git merge --no-edit "$TAG" -m "chore: merge upstream coollabsio/coolify ${TAG}"; then
+            # GITHUB_TOKEN cannot push changes to .github/workflows; only then use the personal token
+            # (fine-grained PAT on this repo with Contents + Workflows: read and write).
+            if [ -n "$SYNC_TOKEN" ] && ! git diff --quiet main HEAD -- .github/workflows; then
+              git remote set-url origin "https://x-access-token:${SYNC_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            fi
             git push --force origin upstream-sync
             echo "result=clean" >> "$GITHUB_OUTPUT"
           else
@@ -73,8 +82,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
         run: |
-          log=$(git log --no-merges --format='- %s (%h)' main..upstream/main | head -50)
-          body="${BEHIND} new commits in coollabsio/coolify (up to ${UPSTREAM_SHA}).
+          log=$(git log --no-merges --format='- %s (%h)' "main..${TAG}" | head -50)
+          body="${BEHIND} new commits in coollabsio/coolify for release ${TAG}.
 
           ${log}
 
@@ -82,10 +91,10 @@ jobs:
           if gh pr view upstream-sync --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null | grep -q OPEN; then
             gh pr edit upstream-sync --repo "$GITHUB_REPOSITORY" --body "$body"
             gh pr comment upstream-sync --repo "$GITHUB_REPOSITORY" \
-              --body "@${OWNER} new upstream commits arrived: now ${BEHIND} behind, up to ${UPSTREAM_SHA}."
+              --body "@${OWNER} new upstream release ${TAG} (${BEHIND} commits)."
           else
             gh pr create --repo "$GITHUB_REPOSITORY" --base main --head upstream-sync \
-              --title "Sync with upstream Coolify (${UPSTREAM_SHA})" --body "$body" \
+              --title "Sync with upstream Coolify ${TAG}" --body "$body" \
               --assignee "$OWNER" --reviewer "$OWNER"
           fi
 
@@ -96,7 +105,7 @@ jobs:
         run: |
           {
             echo "## Upstream sync needs a manual merge"
-            echo "Merging coollabsio/coolify@${UPSTREAM_SHA} (${BEHIND} commits) into main conflicts on:"
+            echo "Merging coollabsio/coolify ${TAG} (${BEHIND} commits) into main conflicts on:"
             echo '```'
             echo "${FILES}"
             echo '```'

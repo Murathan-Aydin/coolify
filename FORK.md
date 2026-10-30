@@ -19,14 +19,14 @@ Ne jamais réutiliser un numéro officiel seul (`v4.5.5`) : il se confondrait av
 
 ## Mise à jour automatique (GitHub Actions)
 
-Le workflow `.github/workflows/mura-upstream-sync.yml` tourne toutes les 6 heures. On peut aussi le lancer à la main :
+Le workflow `.github/workflows/mura-upstream-sync.yml` tourne toutes les 6 heures et ne réagit qu'aux nouvelles versions officielles (tags `vX.Y.Z`, ex. `v4.5.4`), pas aux commits isolés sur `main`. On peut aussi le lancer à la main :
 onglet **Actions** du fork, puis **Upstream sync (fork)**, puis **Run workflow**.
 On ne peut pas le déclencher au moment exact d'un push officiel : GitHub ne prévient pas un fork quand le dépôt d'origine change.
 
 | Situation | Ce qui se passe | Ce que je fais |
 |---|---|---|
-| Rien de nouveau | Rien. | Rien. |
-| Nouveaux commits, sans conflit | Une PR « Sync with upstream Coolify » s'ouvre de `upstream-sync` vers `main`, avec la liste des commits officiels. Elle m'est assignée et ma review est demandée, donc je reçois un e-mail. S'il arrive encore du nouveau avant que je fusionne, un commentaire me mentionne, et je reçois un nouvel e-mail. | Je suis la section « Valider une mise à jour », puis je fusionne la PR. |
+| Pas de nouvelle version | Le run se termine en vert, sans e-mail. | Rien. |
+| Nouvelle version, sans conflit | Une PR « Sync with upstream Coolify » s'ouvre de `upstream-sync` vers `main`, avec la liste des commits de la version. Elle m'est assignée et ma review est demandée, donc je reçois un e-mail. Si une version plus récente sort avant que je fusionne, un commentaire me mentionne, et je reçois un nouvel e-mail. | Je suis la section « Valider une mise à jour », puis je fusionne la PR. |
 | Conflit | Le run échoue en rouge, GitHub m'envoie un e-mail et le résumé du run liste les fichiers en conflit. L'e-mail revient toutes les 6 h tant que ce n'est pas réglé. | Je suis la section « Conflits ». |
 
 Le robot ne touche jamais `main` directement. Rien n'est déployé sans moi.
