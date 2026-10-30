@@ -4,10 +4,13 @@ namespace App\Policies;
 
 use App\Models\ScheduledTask;
 use App\Models\User;
+use App\Policies\Concerns\ChecksProjectAccess;
 use Illuminate\Auth\Access\Response;
 
 class ScheduledTaskPolicy
 {
+    use ChecksProjectAccess;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -37,7 +40,7 @@ class ScheduledTaskPolicy
      */
     public function update(User $user, ScheduledTask $scheduledTask): Response
     {
-        if (! $user->isAdminOfTeam($scheduledTask->team_id)) {
+        if (! $user->isAdminOfTeam($scheduledTask->team_id) && ! $this->canManageProjectOf($user, $scheduledTask->application ?? $scheduledTask->service)) {
             return Response::deny('You need at least admin or owner permissions to update this scheduled task.');
         }
 
@@ -49,7 +52,7 @@ class ScheduledTaskPolicy
      */
     public function delete(User $user, ScheduledTask $scheduledTask): bool
     {
-        return $user->isAdminOfTeam($scheduledTask->team_id);
+        return $user->isAdminOfTeam($scheduledTask->team_id) || $this->canManageProjectOf($user, $scheduledTask->application ?? $scheduledTask->service);
     }
 
     /**

@@ -635,8 +635,48 @@ class GlobalSearch extends Component
             return $items->toArray();
         });
 
+        // The cache is team-wide: members restricted to projects or with per-resource roles (fork)
+        // only search what they may open.
+        $user = auth()->user();
+        if ($user->hasAssignedRoles() || $user->isRestrictedInTeam($user->currentTeam()->id)) {
+            $visible = $this->visibleUuids();
+            $resources = collect($resources)
+                ->filter(fn (array $item): bool => $item['type'] !== 'server' && in_array($item['uuid'] ?? null, $visible, true))
+                ->values()
+                ->all();
+        }
+
+        $navigation = $this->navigationItems();
+        if ($user->isRestrictedInTeam($user->currentTeam()->id)) {
+            $navigation = $navigation->whereIn('link', [route('dashboard'), route('project.index')]);
+        }
+
         // Navigation depends on the user's permissions, so it is not part of the team-wide cache
-        $this->allSearchableItems = $this->navigationItems()->merge($resources)->values()->all();
+        $this->allSearchableItems = $navigation->merge($resources)->values()->all();
+    }
+
+    /**
+     * Uuids of the projects, environments and resources the current user may open.
+     */
+    private function visibleUuids(): array
+    {
+        $user = auth()->user();
+        $uuids = [];
+
+        foreach (Project::ownedByCurrentTeam()->with('environments')->get() as $project) {
+            $uuids[] = $project->uuid;
+            foreach ($project->environments as $environment) {
+                $uuids[] = $environment->uuid;
+                $resources = $environment->applications->concat($environment->services)->concat($environment->databases());
+                foreach ($resources as $resource) {
+                    if ($user->can('view', $resource)) {
+                        $uuids[] = $resource->uuid;
+                    }
+                }
+            }
+        }
+
+        return $uuids;
     }
 
     private function navigationItems(): Collection

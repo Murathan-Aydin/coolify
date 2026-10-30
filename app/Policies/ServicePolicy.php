@@ -43,7 +43,7 @@ class ServicePolicy
     {
         $teamId = $this->getTeamId($service);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $service));
     }
 
     /**
@@ -89,7 +89,7 @@ class ServicePolicy
     {
         $teamId = $this->getTeamId($service);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $service));
     }
 
     /**
@@ -99,7 +99,7 @@ class ServicePolicy
     {
         $teamId = $this->getTeamId($service);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $service));
     }
 
     /**

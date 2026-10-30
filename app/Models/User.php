@@ -11,6 +11,7 @@ use App\Services\ChangelogService;
 use App\Traits\DeletesUserSessions;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -508,25 +509,75 @@ class User extends Authenticatable implements PasskeyUser, SendsEmail
             || $this->projects()->whereKey($project->id)->exists();
     }
 
-    public function hasDeployerProjects(): bool
+    public function resourceRoles()
     {
-        return once(fn () => $this->projects()->wherePivot('role', 'deployer')->exists());
+        return $this->hasMany(ResourceUser::class);
+    }
+
+    /**
+     * Whether the user has any project or resource role, so policies can skip the lookups otherwise.
+     */
+    public function hasAssignedRoles(): bool
+    {
+        return $this->exists && once(fn () => $this->projects()->exists() || $this->resourceRoles()->exists());
+    }
+
+    /**
+     * The user's role on the project ("none" means they only see resources given to them directly).
+     */
+    public function projectRole(Project $project): ?string
+    {
+        return once(fn () => $this->projects()->whereKey($project->id)->first()?->pivot->role);
+    }
+
+    /**
+     * The role set on this one application, service or database, if any.
+     */
+    public function resourceRoleOverride(Model $resource): ?string
+    {
+        return once(fn () => $this->resourceRoles()
+            ->where('resourceable_type', $resource->getMorphClass())
+            ->where('resourceable_id', $resource->getKey())
+            ->value('role'));
+    }
+
+    /**
+     * The user's role on a project resource: "admin" for team admins and owners, then the resource's own
+     * role, then the project role. Members without any assignment keep the team "member" role, and members
+     * restricted to projects get null (no access).
+     */
+    public function effectiveRoleOn(Project $project, ?Model $resource = null): ?string
+    {
+        if ($this->isAdminOfTeam($project->team_id)) {
+            return 'admin';
+        }
+        if (! $this->teams->contains('id', $project->team_id)) {
+            return null;
+        }
+
+        $role = $this->hasAssignedRoles()
+            ? (($resource ? $this->resourceRoleOverride($resource) : null) ?? $this->projectRole($project))
+            : null;
+
+        return $role ?? ($this->isRestrictedInTeam($project->team_id) ? null : 'member');
     }
 
     /**
      * Whether the user may deploy, start, stop and restart resources of the project.
      */
-    public function canDeployProject(?Project $project): bool
+    public function canDeployProject(?Project $project, ?Model $resource = null): bool
     {
-        if (! $project) {
-            return false;
-        }
-        if ($this->isAdminOfTeam($project->team_id)) {
-            return true;
-        }
+        return $project !== null
+            && in_array($this->effectiveRoleOn($project, $resource), ['admin', 'manager', 'deployer'], true);
+    }
 
-        return $this->canAccessProject($project)
-            && $this->projects()->whereKey($project->id)->wherePivot('role', 'deployer')->exists();
+    /**
+     * Whether the user may change the configuration of a project resource (everything except deleting it).
+     */
+    public function canManageProjectResource(?Project $project, ?Model $resource = null): bool
+    {
+        return $project !== null
+            && in_array($this->effectiveRoleOn($project, $resource), ['admin', 'manager'], true);
     }
 
     public function roleInTeam(int $teamId): ?string

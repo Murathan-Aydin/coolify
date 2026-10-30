@@ -4,9 +4,12 @@ namespace App\Policies;
 
 use App\Models\ApplicationSetting;
 use App\Models\User;
+use App\Policies\Concerns\ChecksProjectAccess;
 
 class ApplicationSettingPolicy
 {
+    use ChecksProjectAccess;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -40,7 +43,7 @@ class ApplicationSettingPolicy
     {
         $teamId = $this->getTeamId($applicationSetting);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $applicationSetting->application));
     }
 
     /**

@@ -217,7 +217,7 @@ class InviteLink extends Component
 
     private function ensureProjectBelongsToTeam(): void
     {
-        if (! in_array($this->projectRole, ['viewer', 'deployer'], true)) {
+        if (! in_array($this->projectRole, ['viewer', 'deployer', 'manager'], true)) {
             throw new \Exception('Unknown project access.');
         }
         if ($this->projectId() && ! Project::ownedByCurrentTeam()->whereKey($this->projectId())->exists()) {

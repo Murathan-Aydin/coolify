@@ -4,9 +4,12 @@ namespace App\Policies;
 
 use App\Models\EnvironmentVariable;
 use App\Models\User;
+use App\Policies\Concerns\ChecksProjectAccess;
 
 class EnvironmentVariablePolicy
 {
+    use ChecksProjectAccess;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -40,7 +43,7 @@ class EnvironmentVariablePolicy
     {
         $teamId = $this->getTeamId($environmentVariable);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $environmentVariable->resourceable));
     }
 
     /**
@@ -50,7 +53,7 @@ class EnvironmentVariablePolicy
     {
         $teamId = $this->getTeamId($environmentVariable);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $environmentVariable->resourceable));
     }
 
     /**
@@ -76,7 +79,7 @@ class EnvironmentVariablePolicy
     {
         $teamId = $this->getTeamId($environmentVariable);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $environmentVariable->resourceable));
     }
 
     private function getTeamId(EnvironmentVariable $environmentVariable): ?int

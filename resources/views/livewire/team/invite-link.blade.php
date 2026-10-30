@@ -48,6 +48,7 @@
                             <x-forms.listbox id="projectRole" label="Project access" :options="[
                                 ['value' => 'viewer', 'label' => 'Viewer'],
                                 ['value' => 'deployer', 'label' => 'Deployer (deploy, start, stop, restart)'],
+                                ['value' => 'manager', 'label' => 'Manager (also edit settings, no delete)'],
                             ]" />
                         @endif
                     </div>

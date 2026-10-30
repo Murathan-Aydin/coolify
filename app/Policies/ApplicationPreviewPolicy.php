@@ -4,10 +4,13 @@ namespace App\Policies;
 
 use App\Models\ApplicationPreview;
 use App\Models\User;
+use App\Policies\Concerns\ChecksProjectAccess;
 use Illuminate\Auth\Access\Response;
 
 class ApplicationPreviewPolicy
 {
+    use ChecksProjectAccess;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -45,7 +48,7 @@ class ApplicationPreviewPolicy
             return Response::deny('Application preview team not found.');
         }
 
-        if ($user->isAdminOfTeam($teamId)) {
+        if ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $applicationPreview->application)) {
             return Response::allow();
         }
 
@@ -59,7 +62,7 @@ class ApplicationPreviewPolicy
     {
         $teamId = $this->getTeamId($applicationPreview);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $applicationPreview->application));
     }
 
     /**
@@ -85,7 +88,7 @@ class ApplicationPreviewPolicy
     {
         $teamId = $this->getTeamId($applicationPreview);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canDeployProjectOf($user, $applicationPreview->application));
     }
 
     private function getTeamId(ApplicationPreview $applicationPreview): ?int

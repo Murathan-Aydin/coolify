@@ -48,7 +48,7 @@ class ApplicationPolicy
             return Response::deny('Application team not found.');
         }
 
-        if ($user->isAdminOfTeam($teamId)) {
+        if ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $application)) {
             return Response::allow();
         }
 
@@ -92,7 +92,7 @@ class ApplicationPolicy
             return Response::deny('Application team not found.');
         }
 
-        if ($user->isAdminOfTeam($teamId)) {
+        if ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $application)) {
             return Response::allow();
         }
 
@@ -116,7 +116,7 @@ class ApplicationPolicy
     {
         $teamId = $this->getTeamId($application);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $application));
     }
 
     private function getTeamId(Application $application): ?int

@@ -164,6 +164,13 @@ class Index extends Component
 
             return $service;
         });
+
+        // Members can be given "no access" on single resources (fork): list only what they may open.
+        if (auth()->user()->hasAssignedRoles()) {
+            foreach (['applications', 'postgresqls', 'redis', 'mongodbs', 'mysqls', 'mariadbs', 'keydbs', 'dragonflies', 'clickhouses', 'sqlites', 'services'] as $property) {
+                $this->{$property} = $this->{$property}->filter(fn ($resource) => auth()->user()->can('view', $resource))->values();
+            }
+        }
     }
 
     public function render()

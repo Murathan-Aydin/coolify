@@ -47,7 +47,7 @@ class DatabasePolicy
             return Response::deny('Database team not found.');
         }
 
-        if ($user->isAdminOfTeam($teamId)) {
+        if ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $database)) {
             return Response::allow();
         }
 
@@ -87,7 +87,7 @@ class DatabasePolicy
     {
         $teamId = $this->getTeamId($database);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $database));
     }
 
     /**
@@ -111,7 +111,7 @@ class DatabasePolicy
             return Response::deny('Database team not found.');
         }
 
-        if ($user->isAdminOfTeam($teamId)) {
+        if ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $database)) {
             return Response::allow();
         }
 
@@ -125,7 +125,7 @@ class DatabasePolicy
     {
         $teamId = $this->getTeamId($database);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $database));
     }
 
     /**
@@ -135,7 +135,7 @@ class DatabasePolicy
     {
         $teamId = $this->getTeamId($database);
 
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $database));
     }
 
     private function getTeamId($database): ?int

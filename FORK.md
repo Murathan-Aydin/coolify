@@ -98,7 +98,7 @@ Pour abandonner en cours de route : `git merge --abort`.
 | Fonctionnalité | Fichiers principaux | Tests |
 |---|---|---|
 | Correctifs d'invitation | `app/Livewire/Team/InviteLink.php`, `app/Http/Controllers/Controller.php` | `tests/Feature/TeamInvitationHandlingTest.php` |
-| Accès par projet (viewer / deployer) | `app/Policies/Concerns/ChecksProjectAccess.php`, policies Project/Environment/Application/Database/Service, `app/Livewire/Project/Members.php`, `app/Models/User.php` (`canAccessProject`), `app/Models/Project.php` (`ownedByCurrentTeam`) | `tests/Feature/Team/ProjectScopedMembersTest.php` |
+| Accès par projet et par ressource (viewer / deployer / manager, exceptions par appli) + blocage des pages d'équipe pour les membres restreints | `app/Policies/Concerns/ChecksProjectAccess.php`, `app/Http/Middleware/RestrictProjectScopedMembers.php`, `app/Models/ResourceUser.php`, policies Project/Environment/Application/Database/Service, `app/Livewire/Project/Members.php`, `app/Models/User.php` (`canAccessProject`), `app/Models/Project.php` (`ownedByCurrentTeam`) | `tests/Feature/Team/ProjectScopedMembersTest.php` |
 | Invitation en masse | `app/Livewire/Team/InviteLink.php` (`bulkInvite`), `app/Models/TeamInvitation.php` (`attachUser`) | `tests/Feature/TeamInvitationHandlingTest.php` |
 
 Fichiers officiels que je modifie, donc à surveiller en cas de conflit : `InviteLink.php`, `Controller.php`, `User.php`, `Project.php`,

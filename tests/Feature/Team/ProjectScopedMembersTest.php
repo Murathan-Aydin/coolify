@@ -5,6 +5,7 @@ use App\Livewire\Team\Member;
 use App\Models\Application;
 use App\Models\InstanceSettings;
 use App\Models\Project;
+use App\Models\ResourceUser;
 use App\Models\Server;
 use App\Models\StandaloneDocker;
 use App\Models\Team;
@@ -154,4 +155,67 @@ test('owners keep opening team-wide pages', function () {
     session(['currentTeam' => $this->team]);
 
     $this->get(route('server.index'))->assertOk();
+});
+
+test('a manager edits and deploys project resources but cannot delete them', function () {
+    $this->student->projects()->updateExistingPivot($this->projectA->id, ['role' => 'manager']);
+    $student = $this->student->fresh();
+
+    expect(Gate::forUser($student)->allows('update', $this->appA))->toBeTrue()
+        ->and(Gate::forUser($student)->allows('manageEnvironment', $this->appA))->toBeTrue()
+        ->and(Gate::forUser($student)->allows('deploy', $this->appA))->toBeTrue()
+        ->and(Gate::forUser($student)->allows('delete', $this->appA))->toBeFalse()
+        ->and(Gate::forUser($student)->allows('delete', $this->projectA))->toBeFalse()
+        ->and(Gate::forUser($student)->allows('update', $this->appB))->toBeFalse();
+});
+
+test('a resource role overrides the project role', function () {
+    $appA2 = Application::factory()->create([
+        'environment_id' => $this->appA->environment_id,
+        'destination_id' => $this->appA->destination_id,
+        'destination_type' => StandaloneDocker::class,
+    ]);
+    ResourceUser::create(['user_id' => $this->student->id, 'resourceable_type' => $this->appA->getMorphClass(), 'resourceable_id' => $this->appA->id, 'role' => 'manager']);
+    ResourceUser::create(['user_id' => $this->student->id, 'resourceable_type' => $appA2->getMorphClass(), 'resourceable_id' => $appA2->id, 'role' => 'none']);
+    $student = $this->student->fresh();
+
+    expect(Gate::forUser($student)->allows('update', $this->appA))->toBeTrue()
+        ->and(Gate::forUser($student)->allows('view', $appA2))->toBeFalse()
+        ->and(Gate::forUser($student)->allows('view', $this->projectA))->toBeTrue();
+});
+
+test('selected resources only shows just the resources given directly', function () {
+    $this->actingAs($this->owner);
+    session(['currentTeam' => $this->team]);
+    $appB2 = Application::factory()->create([
+        'environment_id' => $this->appB->environment_id,
+        'destination_id' => $this->appB->destination_id,
+        'destination_type' => StandaloneDocker::class,
+    ]);
+
+    Livewire\Livewire::test(Members::class, ['project' => $this->projectB])
+        ->call('setResourceAccess', $this->student->id, $appB2->getMorphClass().':'.$appB2->id, 'manager')
+        ->assertDispatched('success');
+
+    $student = $this->student->fresh();
+    expect(Gate::forUser($student)->allows('view', $this->projectB))->toBeTrue()
+        ->and(Gate::forUser($student)->allows('update', $appB2))->toBeTrue()
+        ->and(Gate::forUser($student)->allows('view', $this->appB))->toBeFalse();
+
+    Livewire\Livewire::test(Members::class, ['project' => $this->projectB])
+        ->call('setAccess', $this->student->id, 'none');
+
+    expect(Gate::forUser($this->student->fresh())->allows('view', $appB2))->toBeFalse()
+        ->and(ResourceUser::query()->where('user_id', $this->student->id)->count())->toBe(0);
+});
+
+test('resources of another project cannot be assigned from a project', function () {
+    $this->actingAs($this->owner);
+    session(['currentTeam' => $this->team]);
+
+    Livewire\Livewire::test(Members::class, ['project' => $this->projectA])
+        ->call('setResourceAccess', $this->student->id, $this->appB->getMorphClass().':'.$this->appB->id, 'manager')
+        ->assertNotDispatched('success');
+
+    expect(ResourceUser::query()->count())->toBe(0);
 });
