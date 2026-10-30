@@ -554,13 +554,22 @@ html[data-glass] body {
     --glass-fill: color-mix(in oklab, var(--glass-base) var(--glass-alpha), transparent);
 }
 
+/* Glass surfaces never take backdrop-filter themselves: it would make them the containing block
+   of position: fixed descendants, so listbox panels, tooltips and the resource actions panel
+   would open in the wrong place. A ::before layer behind the content carries the fill and the blur;
+   isolation keeps that layer (z-index -1) above the page and below the surface's content. */
+html[data-glass] body {
+    --glass-layer-shine: inset 0 1px 0 var(--glass-edge);
+}
+
 /* Coolify paints dark cards with an opaque color-mix, so the glass sets the background itself. */
 html[data-glass] body :is(.application-settings-section, .empty-state):not(:is(.application-settings-section, .application-settings-section-body) *) {
-    background: var(--glass-fill);
+    position: relative;
+    isolation: isolate;
+    background: transparent;
     border-color: var(--glass-edge);
     border-radius: 1.25rem;
-    box-shadow: inset 0 1px 0 var(--glass-edge), var(--glass-shadow);
-    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
 }
 
 html[data-glass] body .application-settings-section-body {
@@ -572,37 +581,45 @@ html[data-glass] body .application-settings-section-body {
 
 html[data-glass] body :is(.app-sidebar .sidebar-nav, .app-topbar-brand) {
     --glass-fill: color-mix(in oklab, var(--color-app) var(--glass-alpha), transparent);
-    background-color: var(--glass-fill);
-    backdrop-filter: var(--glass-blur);
+    position: relative;
+    isolation: isolate;
+    background-color: transparent;
 }
 
 html[data-glass]:not(.dark):not([data-theme="custom"]) body :is(.app-sidebar .sidebar-nav, .app-topbar-brand) {
     --glass-fill: color-mix(in oklab, var(--color-neutral-50) var(--glass-alpha), transparent);
 }
 
-/* The top bar cannot take backdrop-filter itself: that would make it the containing block of
-   the fixed resource actions panel inside it. A pseudo-element behind its content carries the
-   glass instead. The doubled [data-glass] outranks the floating navigation's panel colors. */
+/* The doubled [data-glass] outranks the floating navigation's panel colors. */
 html[data-glass][data-glass] body .app-topbar {
     background-color: transparent;
     backdrop-filter: none;
     box-shadow: inset 0 -1px 0 var(--glass-edge);
 }
 
-html[data-glass][data-glass] body .app-topbar::before {
+/* In floating mode the resource actions panel is its own fixed panel at the top right. */
+html[data-glass][data-glass][data-nav-style="floating"] body #resource-action-hud-slot:not(:empty) {
+    isolation: isolate;
+    background-color: transparent;
+    border-color: var(--glass-edge);
+}
+
+html[data-glass] body :is(.application-settings-section, .empty-state):not(:is(.application-settings-section, .application-settings-section-body) *)::before,
+html[data-glass] body :is(.app-sidebar .sidebar-nav, .app-topbar-brand)::before,
+html[data-glass][data-glass] body .app-topbar::before,
+html[data-glass][data-glass][data-nav-style="floating"] body #resource-action-hud-slot:not(:empty)::before {
     content: '';
     position: absolute;
     inset: 0;
     z-index: -1;
     border-radius: inherit;
+    pointer-events: none;
     background-color: var(--glass-fill);
     backdrop-filter: var(--glass-blur);
 }
 
-html[data-glass][data-glass] body #resource-action-hud-slot:not(:empty) {
-    background-color: var(--glass-fill);
-    border-color: var(--glass-edge);
-    backdrop-filter: var(--glass-blur);
+html[data-glass] body :is(.application-settings-section, .empty-state):not(:is(.application-settings-section, .application-settings-section-body) *)::before {
+    box-shadow: var(--glass-layer-shine);
 }
 
 /* Tables, collection tiles and empty states outside cards (dashboard, servers, resources,
@@ -611,8 +628,20 @@ html[data-glass][data-glass] body #resource-action-hud-slot:not(:empty) {
    live in @layer utilities, where !important beats unlayered CSS, so these live there too. */
 @layer utilities {
     html[data-glass] body:not(#_) .app-main :is([class~="rounded-xl"][class~="border"][class~="bg-white"], [class~="rounded-xl"][class~="dark:bg-white/[0.05]"], .data-table, .empty-state-well):not(:is(.application-settings-section, .application-settings-section-body) *) {
-        background-color: var(--glass-fill) !important;
+        position: relative;
+        isolation: isolate;
+        background-color: transparent !important;
         border-color: var(--glass-edge) !important;
+    }
+
+    html[data-glass] body:not(#_) .app-main :is([class~="rounded-xl"][class~="border"][class~="bg-white"], [class~="rounded-xl"][class~="dark:bg-white/[0.05]"], .data-table, .empty-state-well):not(:is(.application-settings-section, .application-settings-section-body) *)::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        border-radius: inherit;
+        pointer-events: none;
+        background-color: var(--glass-fill);
         backdrop-filter: var(--glass-blur);
     }
 
