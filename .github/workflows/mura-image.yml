@@ -26,6 +26,8 @@ jobs:
   build:
     if: github.repository == 'Murathan-Aydin/coolify'
     strategy:
+      # One architecture failing (often a transient registry error) should not cancel the other.
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
