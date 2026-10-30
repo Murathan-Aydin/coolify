@@ -104,5 +104,19 @@ Pour abandonner en cours de route : `git merge --abort`.
 Fichiers officiels que je modifie, donc à surveiller en cas de conflit : `InviteLink.php`, `Controller.php`, `User.php`, `Project.php`,
 `Team.php`, les 5 policies et les vues `team/invite-link`, `team/member`, `project/edit`, `project/database/heading`.
 
-**Mises à jour automatiques de Coolify :** sur une instance installée depuis ce fork, les désactiver dans les réglages.
-Sinon Coolify remplace mon code par l'image officielle.
+## Installer le fork sur un serveur
+
+À chaque push sur `main`, le workflow `.github/workflows/mura-image.yml` construit l'image
+`ghcr.io/murathan-aydin/coolify:latest` (amd64 et arm64, environ 15 min). Sur le serveur, en root :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Murathan-Aydin/coolify/main/scripts/install-fork.sh | sudo bash
+```
+
+Le script écrit `/data/coolify/source/docker-compose.custom.yml` (le service `coolify` utilise mon image), lance
+l'installateur officiel, puis désactive les mises à jour automatiques. Le script de mise à jour officiel garde ce
+fichier, donc Coolify ne repasse jamais sur l'image officielle. Pour passer à la dernière image du fork, relancer
+la même commande. Il marche aussi sur un serveur où Coolify officiel est déjà installé.
+
+**Mises à jour automatiques de Coolify :** le script les désactive. Ne pas les réactiver : elles changent la version
+affichée et redémarrent Coolify à chaque version officielle.
