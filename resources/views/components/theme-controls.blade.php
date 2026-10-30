@@ -71,6 +71,37 @@
     <section class="application-settings-section">
         <div class="application-settings-section-header">
             <div>
+                <h2>Background image</h2>
+                <p>Show a picture behind the page content in this browser. Works with every color theme.</p>
+            </div>
+        </div>
+        <div class="application-settings-section-body flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div class="h-28 w-full shrink-0 overflow-hidden rounded-[10px] border border-neutral-200 bg-neutral-50 bg-cover bg-center sm:w-48 dark:border-white/[0.07] dark:bg-black/15"
+                :style="backgroundImage ? `background-image: url('${backgroundImage}')` : ''">
+                <div x-show="!backgroundImage" class="flex h-full items-center justify-center text-xs text-neutral-500 dark:text-fg-dim">No image</div>
+            </div>
+            <div class="flex min-w-0 flex-1 flex-col gap-3">
+                <div class="flex flex-wrap gap-2">
+                    <input type="file" accept="image/*" class="hidden" x-ref="backgroundFile"
+                        @change="setBackgroundImage($event.target.files[0]); $event.target.value = ''">
+                    <x-forms.button @click="$refs.backgroundFile.click()">
+                        <span x-text="backgroundImage ? 'Change image' : 'Choose image'"></span>
+                    </x-forms.button>
+                    <x-forms.button x-show="backgroundImage" x-cloak @click="removeBackgroundImage()">Remove</x-forms.button>
+                </div>
+                <label x-show="backgroundImage" x-cloak class="flex max-w-sm flex-col gap-1 text-xs text-neutral-500 dark:text-fg-dim">
+                    <span>Dim: <span x-text="backgroundDim + '%'"></span></span>
+                    <input type="range" min="0" max="95" step="5" :value="backgroundDim"
+                        @input="setBackgroundDim($event.target.value)" class="accent-coollabs dark:accent-brand-light">
+                </label>
+                <p x-show="backgroundError" x-cloak x-text="backgroundError" class="text-xs text-error"></p>
+            </div>
+        </div>
+    </section>
+
+    <section class="application-settings-section">
+        <div class="application-settings-section-header">
+            <div>
                 <h2>Page width</h2>
                 <p>Choose how content uses the available browser width.</p>
             </div>

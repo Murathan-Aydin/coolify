@@ -118,8 +118,23 @@
             }
             document.querySelector('meta[name=theme-color]')?.setAttribute('content', theme.background);
         };
+        // Optional background image behind the main content (Appearance page), saved in this browser as a data URL.
+        // The dim level tints it with the page background so text stays readable.
+        window.applyBackgroundImage = () => {
+            const root = document.documentElement;
+            const image = localStorage.backgroundImage;
+            if (!image) {
+                delete root.dataset.bgImage;
+                root.style.removeProperty('--bg-image');
+                return;
+            }
+            root.dataset.bgImage = '';
+            root.style.setProperty('--bg-image', `url("${image}")`);
+            root.style.setProperty('--bg-image-dim', `${localStorage.backgroundDim ?? 70}%`);
+        };
         window.applyStoredTheme = () => {
             const root = document.documentElement;
+            window.applyBackgroundImage();
             const theme = localStorage.theme === 'purple' ? 'custom' : (localStorage.theme || 'dark');
             root.dataset.navStyle = localStorage.navStyle === 'floating' ? 'floating' : 'default';
             root.dataset.navItems = localStorage.navItems === 'flat' ? 'flat' : '3d';
@@ -296,6 +311,42 @@
                 this.navItems = style;
                 localStorage.setItem('navItems', style);
                 document.documentElement.dataset.navItems = style;
+            },
+            backgroundImage: localStorage.getItem('backgroundImage'),
+            backgroundDim: Number(localStorage.getItem('backgroundDim') ?? 70),
+            backgroundError: '',
+            // Scales the picture down to 2560px and re-encodes it as JPEG so it fits in localStorage (about 5 MB).
+            async setBackgroundImage(file) {
+                this.backgroundError = '';
+                if (!file?.type.startsWith('image/')) {
+                    this.backgroundError = 'Choose an image file.';
+                    return;
+                }
+                try {
+                    const bitmap = await createImageBitmap(file);
+                    const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.round(bitmap.width * scale);
+                    canvas.height = Math.round(bitmap.height * scale);
+                    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                    const image = canvas.toDataURL('image/jpeg', 0.85);
+                    localStorage.setItem('backgroundImage', image);
+                    this.backgroundImage = image;
+                    window.applyBackgroundImage();
+                } catch {
+                    this.backgroundError = 'This image could not be saved. Try a smaller one.';
+                }
+            },
+            removeBackgroundImage() {
+                localStorage.removeItem('backgroundImage');
+                this.backgroundImage = null;
+                this.backgroundError = '';
+                window.applyBackgroundImage();
+            },
+            setBackgroundDim(value) {
+                this.backgroundDim = Number(value);
+                localStorage.setItem('backgroundDim', this.backgroundDim);
+                window.applyBackgroundImage();
             },
             setChartTimes(value) {
                 this.chartTimes = value;

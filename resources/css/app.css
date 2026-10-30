@@ -487,6 +487,35 @@ body {
     @apply w-full min-h-full bg-neutral-50 dark:bg-app dark:text-fg-dim;
 }
 
+/* Background image from the Appearance page: the picture stays fixed behind the whole app,
+   tinted with the page background by --bg-image-dim. The main area turns transparent and the
+   sidebar becomes frosted glass so the picture shows behind it too. */
+html[data-bg-image] {
+    --bg-image-tint: color-mix(in oklab, var(--color-neutral-50) var(--bg-image-dim), transparent);
+}
+
+html:is(.dark, [data-theme="custom"])[data-bg-image] {
+    --bg-image-tint: color-mix(in oklab, var(--color-app) var(--bg-image-dim), transparent);
+}
+
+/* body raises the specificity above the floating navigation's dotted backdrop on .app-shell. */
+html[data-bg-image] body .app-shell {
+    background: linear-gradient(var(--bg-image-tint), var(--bg-image-tint)), var(--bg-image) center / cover fixed;
+}
+
+html[data-bg-image] .app-main {
+    background: transparent;
+}
+
+html[data-bg-image] :is(.app-sidebar .sidebar-nav, .app-topbar-brand) {
+    background-color: color-mix(in oklab, var(--color-neutral-50) 70%, transparent);
+    backdrop-filter: blur(20px);
+}
+
+html:is(.dark, [data-theme="custom"])[data-bg-image] :is(.app-sidebar .sidebar-nav, .app-topbar-brand) {
+    background-color: color-mix(in oklab, var(--color-app) 70%, transparent);
+}
+
 body {
     /* overflow-x: clip (not hidden) — hidden creates a scroll containment that
        breaks position:sticky on settings sidebars and other in-page pins. */
