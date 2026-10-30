@@ -1,6 +1,7 @@
 #!/bin/bash
 ## Installs (or updates) Coolify from the Murathan-Aydin/coolify fork.
-## curl -fsSL https://raw.githubusercontent.com/Murathan-Aydin/coolify/main/scripts/install-fork.sh | sudo bash
+## curl -fsSL https://install-coolify.m-aydin.fr | sudo bash
+## (redirects to https://raw.githubusercontent.com/Murathan-Aydin/coolify/main/scripts/install-fork.sh)
 ##
 ## It runs the official installer, but first writes docker-compose.custom.yml so the
 ## coolify service uses the fork image. The official upgrade script keeps that file,

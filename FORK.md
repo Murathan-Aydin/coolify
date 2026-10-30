@@ -110,8 +110,10 @@ Fichiers officiels que je modifie, donc à surveiller en cas de conflit : `Invit
 `ghcr.io/murathan-aydin/coolify:latest` (amd64 et arm64, environ 15 min). Sur le serveur, en root :
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Murathan-Aydin/coolify/main/scripts/install-fork.sh | sudo bash
+curl -fsSL https://install-coolify.m-aydin.fr | sudo bash
 ```
+
+`install-coolify.m-aydin.fr` redirige (règle Cloudflare) vers `https://raw.githubusercontent.com/Murathan-Aydin/coolify/main/scripts/install-fork.sh`, qu'on peut utiliser directement si le domaine ne répond pas.
 
 Le script écrit `/data/coolify/source/docker-compose.custom.yml` (le service `coolify` utilise mon image), lance
 l'installateur officiel, puis désactive les mises à jour automatiques. Le script de mise à jour officiel garde ce
