@@ -2,15 +2,19 @@
 
 namespace App\Policies;
 
+use App\Enums\AccessLevel;
 use App\Models\ScheduledTask;
 use App\Models\User;
-use App\Policies\Concerns\ChecksProjectAccess;
+use App\Services\Access\AccessResolver;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Support\Facades\Gate;
 
+/**
+ * A scheduled task is part of its application's or service's configuration: reading it needs view on that
+ * resource, every change needs update (write access) on it. A task without a visible parent needs team-wide access.
+ */
 class ScheduledTaskPolicy
 {
-    use ChecksProjectAccess;
-
     /**
      * Determine whether the user can view any models.
      */
@@ -24,7 +28,12 @@ class ScheduledTaskPolicy
      */
     public function view(User $user, ScheduledTask $scheduledTask): bool
     {
-        return $user->teams->contains('id', $scheduledTask->team_id);
+        $resource = $this->resource($scheduledTask);
+        if ($resource === null) {
+            return app(AccessResolver::class)->allowsTeamWide($user, AccessLevel::Read, $scheduledTask->team_id);
+        }
+
+        return Gate::forUser($user)->allows('view', $resource);
     }
 
     /**
@@ -40,7 +49,7 @@ class ScheduledTaskPolicy
      */
     public function update(User $user, ScheduledTask $scheduledTask): Response
     {
-        if (! $user->isAdminOfTeam($scheduledTask->team_id) && ! $this->canManageProjectOf($user, $scheduledTask->application ?? $scheduledTask->service)) {
+        if (! $this->canChange($user, $scheduledTask)) {
             return Response::deny('You need at least admin or owner permissions to update this scheduled task.');
         }
 
@@ -52,7 +61,7 @@ class ScheduledTaskPolicy
      */
     public function delete(User $user, ScheduledTask $scheduledTask): bool
     {
-        return $user->isAdminOfTeam($scheduledTask->team_id) || $this->canManageProjectOf($user, $scheduledTask->application ?? $scheduledTask->service);
+        return $this->canChange($user, $scheduledTask);
     }
 
     /**
@@ -69,5 +78,20 @@ class ScheduledTaskPolicy
     public function forceDelete(User $user, ScheduledTask $scheduledTask): bool
     {
         return false;
+    }
+
+    private function canChange(User $user, ScheduledTask $scheduledTask): bool
+    {
+        $resource = $this->resource($scheduledTask);
+        if ($resource === null) {
+            return $user->isAdminOfTeam($scheduledTask->team_id);
+        }
+
+        return Gate::forUser($user)->allows('update', $resource);
+    }
+
+    private function resource(ScheduledTask $scheduledTask): ?object
+    {
+        return $scheduledTask->application ?? $scheduledTask->service;
     }
 }

@@ -1,7 +1,12 @@
-# Fork only: checks coollabsio/coolify every 6 hours for a new release tag (v4.5.4, ...).
-# When one exists that main does not contain yet, merges it into the "upstream-sync" branch
+# Fork only: checks coollabsio/coolify every 6 hours for a new release tag (v4.7.5, ...).
+# When one exists that main does not contain yet, merges it into the "upstream-sync" branch, runs the tests
 # and opens a pull request into main (which emails me). No new release: the run ends green, silently.
-# On conflicts, the run fails (GitHub emails you) and lists the files. See FORK.md.
+#
+# On conflicts, Claude Code (my Claude subscription, secret CLAUDE_CODE_OAUTH_TOKEN) resolves them following
+# FORK.md. It works in the "merge" job, which can only read the repository; the "publish" job, without Claude,
+# pushes upstream-sync and opens the pull request. The pull request says which files Claude resolved, and is
+# a draft when the tests fail. Without the secret, or when Claude leaves conflicts, the run fails (GitHub emails
+# me) and lists the files. Nothing is ever pushed to main. See FORK.md.
 name: Upstream sync (fork)
 
 on:
@@ -10,22 +15,35 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: mura-upstream-sync
   cancel-in-progress: false
 
 jobs:
-  sync:
+  merge:
     if: github.repository == 'Murathan-Aydin/coolify'
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      # claude-code-action asks for an OIDC token even when it gets github_token.
+      id-token: write
+    env:
+      HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+    outputs:
+      ready: ${{ steps.merge.outputs.result == 'clean' || steps.resolved.outputs.ok == 'true' }}
+      tag: ${{ steps.release.outputs.tag }}
+      behind: ${{ steps.release.outputs.behind }}
+      files: ${{ steps.merge.outputs.files }}
+      passed: ${{ steps.tests.outputs.passed }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Find the latest upstream release
         id: release
@@ -35,34 +53,30 @@ jobs:
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
           git fetch --no-tags upstream "refs/tags/${tag}:refs/tags/${tag}"
           echo "TAG=${tag}" >> "$GITHUB_ENV"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           if git merge-base --is-ancestor "$tag" main; then
             echo "main already contains ${tag}, nothing to do."
             echo "new=false" >> "$GITHUB_OUTPUT"
-          elif git fetch origin upstream-sync 2>/dev/null && git merge-base --is-ancestor "$tag" origin/upstream-sync; then
+          elif git fetch origin upstream-sync 2>/dev/null && git merge-base --is-ancestor "$tag" FETCH_HEAD; then
             echo "upstream-sync already has ${tag}, its pull request is already open."
             echo "new=false" >> "$GITHUB_OUTPUT"
           else
             echo "New upstream release: ${tag}"
-            echo "BEHIND=$(git rev-list --count "main..${tag}")" >> "$GITHUB_ENV"
+            behind=$(git rev-list --count "main..${tag}")
+            echo "BEHIND=${behind}" >> "$GITHUB_ENV"
+            echo "behind=${behind}" >> "$GITHUB_OUTPUT"
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # On conflicts the merge stays in progress for Claude.
       - name: Merge the release into upstream-sync
         if: steps.release.outputs.new == 'true'
         id: merge
-        env:
-          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -C upstream-sync
           if git merge --no-edit "$TAG" -m "chore: merge upstream coollabsio/coolify ${TAG}"; then
-            # GITHUB_TOKEN cannot push changes to .github/workflows; only then use the personal token
-            # (fine-grained PAT on this repo with Contents + Workflows: read and write).
-            if [ -n "$SYNC_TOKEN" ] && ! git diff --quiet main HEAD -- .github/workflows; then
-              git remote set-url origin "https://x-access-token:${SYNC_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            fi
-            git push --force origin upstream-sync
             echo "result=clean" >> "$GITHUB_OUTPUT"
           else
             {
@@ -70,46 +84,222 @@ jobs:
               git diff --name-only --diff-filter=U
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
-            git merge --abort
             echo "result=conflict" >> "$GITHUB_OUTPUT"
           fi
+
+      - uses: shivammathur/setup-php@v2
+        if: steps.release.outputs.new == 'true'
+        with:
+          php-version: "8.4"
+          extensions: pdo_sqlite, sqlite3, intl, zip, gd, bcmath, redis, sodium
+          ini-values: memory_limit=2G
+          tools: composer
+
+      - uses: actions/setup-node@v4
+        if: steps.release.outputs.new == 'true'
+        with:
+          node-version: "22"
+
+      # Lets Claude run the tests. Can fail while composer.lock or package-lock.json is in conflict.
+      - name: Install dependencies for Claude
+        if: steps.merge.outputs.result == 'conflict' && env.HAS_CLAUDE == 'true'
+        continue-on-error: true
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Resolve the conflicts with Claude
+        if: steps.merge.outputs.result == 'conflict' && env.HAS_CLAUDE == 'true'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Read-only in this job (see permissions above).
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: >-
+            --model claude-opus-5-5
+            --max-turns 200
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git checkout --ours:*),Bash(git checkout --theirs:*),Bash(git add:*),Bash(git rm:*),Bash(git ls-files:*),Bash(grep:*),Bash(php -l:*),Bash(php vendor/bin/pest:*),Bash(composer install:*),Bash(npm ci:*),Bash(npm run build:*)"
+            --disallowedTools "Bash(git commit:*),Bash(git push:*),Bash(git merge:*),Bash(git reset:*),Bash(git rebase:*)"
+          prompt: |
+            You are in a checkout of my Coolify fork, in the middle of `git merge ${{ env.TAG }}` (upstream
+            coollabsio/coolify release ${{ env.TAG }}, ${{ env.BEHIND }} commits) into my branch. These files conflict:
+
+            ${{ steps.merge.outputs.files }}
+
+            Resolve every conflict so that upstream's new code and my fork's changes both keep working.
+            1. Read FORK.md first: the "Mes modifications" table lists my fork features, their files and their tests,
+               and "Règles pour limiter les conflits" says how my changes are meant to sit on top of upstream.
+            2. For each file, look at what each side changed (`git diff`, `git log --oneline main..${{ env.TAG }} -- <file>`,
+               `git show <commit>`) before editing. Keep upstream's version of everything that is not a fork feature.
+               When upstream now ships a feature that does the same job as one of mine, keep upstream's and adapt my code
+               to it instead of keeping both, and say so in your notes.
+            3. Never edit an upstream migration; add a new migration in database/migrations when data must change.
+            4. Remove every conflict marker, then `git add` each resolved file. Do not commit, push, merge or reset.
+            5. Check: `php -l` on every PHP file you touched, then run
+               `php vendor/bin/pest --compact tests/Feature/Fork tests/Feature/TeamInvitationHandlingTest.php tests/Unit/Policies tests/Feature/Access`
+               and fix what your resolution broke. If vendor/ is missing (composer.lock was in conflict), run
+               `composer install` after resolving it; for package-lock.json run `npm ci` and `npm run build`.
+            6. Write your notes, in French, to storage/logs/claude-merge-notes.md (ignored by git): for each conflicted
+               file, what you kept from each side and why, then anything I should check by hand. They go in the pull request.
+
+      - name: Check that no conflict is left
+        if: steps.merge.outputs.result == 'conflict'
+        id: resolved
+        env:
+          FILES: ${{ steps.merge.outputs.files }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/sync"
+          [ -f storage/logs/claude-merge-notes.md ] && mv storage/logs/claude-merge-notes.md "$RUNNER_TEMP/sync/merge-notes.md"
+          left=$(git diff --name-only --diff-filter=U)
+          markers=$(git grep -lE '^(<<<<<<<|>>>>>>>) ' -- $FILES 2>/dev/null || true)
+          if [ -n "$left$markers" ]; then
+            {
+              echo "## Upstream sync needs a manual merge"
+              echo "Merging coollabsio/coolify ${TAG} (${BEHIND} commits) into main conflicts on:"
+              echo '```'
+              printf '%s\n%s\n' "$left" "$markers" | sed '/^$/d' | sort -u
+              echo '```'
+              if [ "$HAS_CLAUDE" = "true" ]; then
+                echo "Claude could not resolve these files. Resolve them locally with FORK.md, section \"Conflits\"."
+              else
+                echo "Add the CLAUDE_CODE_OAUTH_TOKEN secret to let Claude resolve them (FORK.md), or resolve them locally."
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Upstream merge conflicts left on: $(printf '%s %s' "$left" "$markers" | tr '\n' ' ')"
+            exit 1
+          fi
+          git add -A
+          git commit --no-edit -m "chore: merge upstream coollabsio/coolify ${TAG}" \
+            -m "Conflicts resolved by Claude Code in the upstream sync workflow: ${FILES//$'\n'/, }"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        if: steps.merge.outputs.result == 'clean' || steps.resolved.outputs.ok == 'true'
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          npm ci --no-audit --no-fund
+          npm run build
+
+      # The fork features' tests plus upstream's access tests. A failure still opens the pull request, as a draft.
+      - name: Run the tests
+        if: steps.merge.outputs.result == 'clean' || steps.resolved.outputs.ok == 'true'
+        id: tests
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/sync"
+          if php vendor/bin/pest --compact tests/Feature/Fork tests/Feature/TeamInvitationHandlingTest.php \
+            tests/Unit/Policies tests/Feature/Access 2>&1 | tee "$RUNNER_TEMP/sync/tests.log"; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bundle the branch for the publish job
+        if: steps.merge.outputs.result == 'clean' || steps.resolved.outputs.ok == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/sync"
+          git bundle create "$RUNNER_TEMP/sync/upstream-sync.bundle" upstream-sync ^main
+
+      - uses: actions/upload-artifact@v4
+        if: steps.merge.outputs.result == 'clean' || steps.resolved.outputs.ok == 'true'
+        with:
+          name: upstream-sync
+          path: ${{ runner.temp }}/sync/
+          retention-days: 7
+
+  publish:
+    needs: merge
+    if: needs.merge.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      TAG: ${{ needs.merge.outputs.tag }}
+      BEHIND: ${{ needs.merge.outputs.behind }}
+      FILES: ${{ needs.merge.outputs.files }}
+      PASSED: ${{ needs.merge.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-sync
+          path: ${{ runner.temp }}/sync
+
+      - name: Push upstream-sync
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch "$RUNNER_TEMP/sync/upstream-sync.bundle" upstream-sync:upstream-sync
+          # GITHUB_TOKEN cannot push changes to .github/workflows; only then use the personal token
+          # (fine-grained PAT on this repo with Contents + Workflows: read and write).
+          token="$GH_TOKEN"
+          if [ -n "$SYNC_TOKEN" ] && ! git diff --quiet main upstream-sync -- .github/workflows; then
+            token="$SYNC_TOKEN"
+          fi
+          git push --force "https://x-access-token:${token}@github.com/${GITHUB_REPOSITORY}.git" upstream-sync
 
       # Created by github-actions[bot] (not SYNC_TOKEN, which is my own account) so that assigning me
       # and requesting my review sends me a notification email.
       - name: Open or update the pull request and notify me
-        if: steps.merge.outputs.result == 'clean'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
         run: |
+          git fetch --no-tags https://github.com/coollabsio/coolify.git "refs/tags/${TAG}:refs/tags/${TAG}"
           log=$(git log --no-merges --format='- %s (%h)' "main..${TAG}" | head -50)
-          body="${BEHIND} new commits in coollabsio/coolify for release ${TAG}.
-
-          ${log}
-
-          Before merging, follow FORK.md: pull locally, run migrations and the team tests."
+          body="$RUNNER_TEMP/pr-body.md"
+          {
+            echo "${BEHIND} new commits in coollabsio/coolify for release ${TAG}."
+            echo
+            if [ -n "$FILES" ]; then
+              echo "## Conflicts resolved by Claude: review them carefully"
+              echo '```'
+              echo "$FILES"
+              echo '```'
+              if [ -s "$RUNNER_TEMP/sync/merge-notes.md" ]; then cat "$RUNNER_TEMP/sync/merge-notes.md"; else echo "_Claude left no notes._"; fi
+              echo
+            fi
+            if [ "$PASSED" = "true" ]; then
+              echo "## Tests: passed"
+            else
+              echo "## Tests: FAILED (draft pull request)"
+              echo '```'
+              tail -60 "$RUNNER_TEMP/sync/tests.log" 2>/dev/null
+              echo '```'
+            fi
+            echo
+            echo "## Upstream commits"
+            echo "${log}"
+            echo
+            echo "Before merging, follow FORK.md: pull locally, run migrations and the team tests."
+          } > "$body"
+          title="Sync with upstream Coolify ${TAG}"
+          [ -n "$FILES" ] && title="${title} (conflicts resolved by Claude)"
           if gh pr view upstream-sync --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null | grep -q OPEN; then
-            gh pr edit upstream-sync --repo "$GITHUB_REPOSITORY" --body "$body"
+            gh pr edit upstream-sync --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
+            [ "$PASSED" = "true" ] || gh pr ready upstream-sync --repo "$GITHUB_REPOSITORY" --undo || true
             gh pr comment upstream-sync --repo "$GITHUB_REPOSITORY" \
               --body "@${OWNER} new upstream release ${TAG} (${BEHIND} commits)."
           else
-            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head upstream-sync \
-              --title "Sync with upstream Coolify ${TAG}" --body "$body" \
+            draft=()
+            [ "$PASSED" = "true" ] || draft=(--draft)
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head upstream-sync "${draft[@]}" \
+              --title "$title" --body-file "$body" \
               --assignee "$OWNER" --reviewer "$OWNER"
           fi
 
-      - name: Report conflicts
-        if: steps.merge.outputs.result == 'conflict'
-        env:
-          FILES: ${{ steps.merge.outputs.files }}
+      # Turns the run red so GitHub emails me; the draft pull request above shows the failing tests.
+      - name: Fail when the tests failed
+        if: env.PASSED != 'true'
         run: |
-          {
-            echo "## Upstream sync needs a manual merge"
-            echo "Merging coollabsio/coolify ${TAG} (${BEHIND} commits) into main conflicts on:"
-            echo '```'
-            echo "${FILES}"
-            echo '```'
-            echo 'Resolve it locally with FORK.md, section "Conflits".'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::error::Upstream merge conflicts on: ${FILES//$'\n'/, }"
+          echo "::error::Tests failed after merging ${TAG}. See the draft pull request."
           exit 1

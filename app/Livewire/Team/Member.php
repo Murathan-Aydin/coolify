@@ -64,28 +64,6 @@ class Member extends Component
         }
     }
 
-    public function setProjectRestriction(bool $restricted)
-    {
-        try {
-            $this->authorize('manageMembers', currentTeam());
-            if ($this->getMemberRole() !== Role::MEMBER->value) {
-                throw new \Exception('Only members can be limited to assigned projects.');
-            }
-
-            $teamId = currentTeam()->id;
-            $this->member->teams()->updateExistingPivot($teamId, ['restricted_to_projects' => $restricted]);
-            auditLog('ui.team_member.project_restriction_updated', [
-                'team_id' => $teamId,
-                'member_id' => $this->member->id,
-                'member_email' => $this->member->email,
-                'restricted_to_projects' => $restricted,
-            ]);
-            $this->dispatch('reloadWindow');
-        } catch (\Exception $e) {
-            $this->dispatch('error', $e->getMessage());
-        }
-    }
-
     public function remove()
     {
         try {
@@ -105,7 +83,6 @@ class Member extends Component
                 'team_id' => $teamId,
                 'member_id' => $this->member->id,
                 'member_name' => $this->member->name,
-                'member_email' => $this->member->email,
             ]);
             // Clear cache for the removed user - both old and new key formats
             Cache::forget("team:{$this->member->id}");
@@ -126,7 +103,10 @@ class Member extends Component
         $teamId = currentTeam()->id;
         $previousRole = Role::from($this->getMemberRole());
         DB::transaction(function () use ($teamId, $role, $previousRole): void {
-            $this->member->teams()->updateExistingPivot($teamId, ['role' => $role->value]);
+            // A member gets the default team-wide access again.
+            $this->member->teams()->updateExistingPivot($teamId, $role === Role::MEMBER
+                ? ['role' => $role->value, 'access' => null]
+                : ['role' => $role->value]);
             // A promotion keeps the tokens: the API checks the abilities against the role on each request.
             if ($role->lt($previousRole)) {
                 RevokeUserTeamTokens::forUserTeam($this->member, $teamId);
@@ -136,7 +116,6 @@ class Member extends Component
             'team_id' => $teamId,
             'member_id' => $this->member->id,
             'member_name' => $this->member->name,
-            'member_email' => $this->member->email,
             'role' => $role->value,
         ]);
     }

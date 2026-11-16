@@ -298,34 +298,97 @@ test('bulk invites a list and reports each address', function () {
     ])->and(TeamInvitation::where('team_id', $this->teamB->id)->count())->toBe(2);
 });
 
-test('an invitation limited to a project restricts the member when accepted', function () {
+test('bulk invite gives every invitation the chosen scopes', function () {
     $project = Project::factory()->create(['team_id' => $this->teamB->id]);
+    $grants = [['scope' => 'project', 'uuid' => $project->uuid, 'levels' => ['deploy']]];
 
     Livewire::test(InviteLink::class)
         ->set('role', 'member')
-        ->set('project', (string) $project->id)
-        ->set('projectRole', 'deployer')
-        ->set('emails', 'student@school.test')
-        ->call('bulkInvite', false);
+        ->call('setGrants', $grants)
+        ->set('emails', "student@school.test\nother@school.test")
+        ->call('bulkInvite', false)
+        ->assertDispatched('success');
 
-    $invitation = TeamInvitation::whereEmail('student@school.test')->sole();
-    $student = User::whereEmail('student@school.test')->sole();
-    $invitation->attachUser($student);
-
-    $student = $student->fresh();
-    expect($student->isRestrictedInTeam($this->teamB->id))->toBeTrue()
-        ->and($student->projects()->whereKey($project->id)->first()->pivot->role)->toBe('deployer');
+    $invitations = TeamInvitation::where('team_id', $this->teamB->id)->whereIn('email', ['student@school.test', 'other@school.test'])->get();
+    expect($invitations)->toHaveCount(2)
+        ->and($invitations->pluck('access')->unique()->values()->all())->toBe([$grants])
+        ->and(json_decode($invitations->first()->membershipAttributes()['access'], true))->toBe($grants);
 });
 
-test('bulk invite rejects a project from another team', function () {
+test('bulk invite rejects scopes on a project of another team', function () {
     $foreign = Project::factory()->create(['team_id' => $this->teamA->id]);
 
     Livewire::test(InviteLink::class)
         ->set('role', 'member')
-        ->set('project', (string) $foreign->id)
+        ->call('setGrants', [['scope' => 'project', 'uuid' => $foreign->uuid, 'levels' => ['read']]])
         ->set('emails', 'student@school.test')
         ->call('bulkInvite', false)
         ->assertNotDispatched('success');
 
     expect(TeamInvitation::whereEmail('student@school.test')->exists())->toBeFalse();
+});
+
+test('gives a second team a plain link without changing the pending login of the first', function (bool $legacy) {
+    $this->withoutVite();
+    config()->set('app.maintenance.store', 'array');
+    $password = 'temporary-invitation-password';
+    $this->pendingUser->forceFill(['password' => Hash::make($password)])->save();
+    $passwordHash = $this->pendingUser->password;
+    $firstToken = Crypt::encryptString($legacy
+        ? "{$this->pendingUser->email}@@@{$password}"
+        : "{$this->pendingUser->email}@@@{$this->invitationA->uuid}@@@{$password}");
+    $this->invitationA->update(['link' => route('auth.link', ['token' => $firstToken])]);
+
+    Livewire::test(InviteLink::class)
+        ->set('email', $this->pendingUser->email)
+        ->call('viaLink')
+        ->assertDispatched('success');
+
+    $secondInvitation = TeamInvitation::whereTeamId($this->teamB->id)->whereEmail($this->pendingUser->email)->sole();
+    expect(invitationMagicLinkPassword($secondInvitation))->toBeNull()
+        ->and($this->pendingUser->refresh()->password)->toBe($passwordHash);
+
+    auth()->logout();
+    session()->flush();
+    $this->post(route('auth.link.accept'), ['token' => $firstToken])->assertRedirect(route('dashboard'));
+    $this->assertAuthenticatedAs($this->pendingUser);
+    expect($this->pendingUser->teams()->whereKey($this->teamA->id)->exists())->toBeTrue();
+    $this->assertDatabaseHas('team_invitations', ['id' => $secondInvitation->id]);
+})->with(['current token' => false, 'legacy token' => true]);
+
+test('gives a plain link while another team has any unexpired invitation', function (string $case) {
+    $password = 'temporary-invitation-password';
+    $this->pendingUser->forceFill(['password' => Hash::make($password)])->save();
+    $passwordHash = $this->pendingUser->password;
+    $email = $case === 'wrong email' ? 'someone-else@example.com' : $this->pendingUser->email;
+    $uuid = $case === 'wrong invitation' ? 'another-invitation' : $this->invitationA->uuid;
+    $tokenPassword = $case === 'wrong password' ? 'another-password' : $password;
+    $token = $case === 'invalid token' ? 'invalid-token' : Crypt::encryptString("{$email}@@@{$uuid}@@@{$tokenPassword}");
+    $this->invitationA->update(['link' => route('auth.link', ['token' => $token])]);
+
+    Livewire::test(InviteLink::class)
+        ->set('email', $this->pendingUser->email)
+        ->call('viaLink')
+        ->assertDispatched('success');
+
+    $invitation = TeamInvitation::whereTeamId($this->teamB->id)->whereEmail($this->pendingUser->email)->sole();
+    expect(invitationMagicLinkPassword($invitation))->toBeNull()
+        ->and($this->pendingUser->refresh()->password)->toBe($passwordHash);
+    $this->assertDatabaseHas('team_invitations', ['id' => $this->invitationA->id]);
+})->with(['wrong email', 'wrong invitation', 'wrong password', 'invalid token']);
+
+test('sends a new magic link when the invitation of another team has expired', function () {
+    $passwordHash = $this->pendingUser->password;
+    $this->invitationA->forceFill(['created_at' => now()->subDays(10)])->save();
+
+    Livewire::test(InviteLink::class)
+        ->set('email', $this->pendingUser->email)
+        ->call('viaLink')
+        ->assertDispatched('success');
+
+    $invitation = TeamInvitation::whereTeamId($this->teamB->id)->whereEmail($this->pendingUser->email)->sole();
+    $newPassword = invitationMagicLinkPassword($invitation);
+    expect($newPassword)->not->toBeNull()
+        ->and($this->pendingUser->refresh()->password)->not->toBe($passwordHash)
+        ->and(Hash::check($newPassword, $this->pendingUser->password))->toBeTrue();
 });

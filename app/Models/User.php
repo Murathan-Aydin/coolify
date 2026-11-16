@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use App\Actions\User\RevokeUserTeamTokens;
+use App\Enums\AccessLevel;
 use App\Jobs\UpdateStripeCustomerEmailJob;
 use App\Notifications\Channels\SendsEmail;
 use App\Notifications\TransactionalEmails\EmailChangeVerification;
 use App\Notifications\TransactionalEmails\ResetPassword as TransactionalEmailsResetPassword;
+use App\Services\Access\AccessResolver;
 use App\Services\ChangelogService;
 use App\Traits\DeletesUserSessions;
 use DateTimeInterface;
@@ -21,7 +23,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\URL;
-use Illuminate\Support\Str;
 use Laravel\Fortify\Contracts\PasskeyUser;
 use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
@@ -185,6 +186,8 @@ class User extends Authenticatable implements PasskeyUser, SendsEmail
                 }
             });
         });
+
+        static::deleted(fn (User $user) => AuditEvent::anonymizeUser($user));
     }
 
     /**
@@ -228,9 +231,27 @@ class User extends Authenticatable implements PasskeyUser, SendsEmail
      */
     public function isUnusedInvitedAccount(): bool
     {
+        return $this->needsInitialInvitationLogin()
+            && ! TeamInvitation::whereEmail($this->email)->exists();
+    }
+
+    /**
+     * Whether a new invitation from the team may carry a magic login link for this account.
+     * A pending invitation of another team keeps the only login, so the admin of a second team cannot sign in as the invitee.
+     */
+    public function canReceiveInvitationLoginFrom(int $teamId): bool
+    {
+        return $this->needsInitialInvitationLogin()
+            && TeamInvitation::whereEmail($this->email)
+                ->where('team_id', '!=', $teamId)
+                ->get()
+                ->every(fn (TeamInvitation $invitation) => $invitation->hasExpired());
+    }
+
+    public function needsInitialInvitationLogin(): bool
+    {
         return ! $this->hasVerifiedEmail()
             && $this->force_password_reset === true
-            && ! TeamInvitation::whereEmail($this->email)->exists()
             && ! $this->belongsToNonPersonalTeam();
     }
 
@@ -267,12 +288,7 @@ class User extends Authenticatable implements PasskeyUser, SendsEmail
 
     public function createToken(string $name, array $abilities = ['read'], ?DateTimeInterface $expiresAt = null, ?int $teamId = null)
     {
-        $plainTextToken = sprintf(
-            '%s%s%s',
-            config('sanctum.token_prefix', ''),
-            $tokenEntropy = Str::random(40),
-            hash('crc32b', $tokenEntropy)
-        );
+        $plainTextToken = PersonalAccessToken::generateSecret();
 
         $token = $this->tokens()->create([
             'name' => $name,
@@ -287,12 +303,17 @@ class User extends Authenticatable implements PasskeyUser, SendsEmail
 
     public function teams()
     {
-        return $this->belongsToMany(Team::class)->withPivot('role', 'restricted_to_projects');
+        return $this->belongsToMany(Team::class)->withPivot('role', 'access');
     }
 
     public function changelogReads()
     {
         return $this->hasMany(UserChangelogRead::class);
+    }
+
+    public function stars(): HasMany
+    {
+        return $this->hasMany(Star::class);
     }
 
     public function getUnreadChangelogCount(): int
@@ -479,112 +500,19 @@ class User extends Authenticatable implements PasskeyUser, SendsEmail
     /**
      * Get the user's role in a specific team
      */
-    public function projects()
-    {
-        return $this->belongsToMany(Project::class)->withPivot('role')->withTimestamps();
-    }
-
-    /**
-     * Whether the user is a member of the team who only sees the projects assigned to them.
-     */
-    public function isRestrictedInTeam(int $teamId): bool
-    {
-        $team = $this->teams->where('id', $teamId)->first();
-
-        return $team !== null
-            && ! in_array($team->pivot->role, ['admin', 'owner'], true)
-            && (bool) $team->pivot->restricted_to_projects;
-    }
-
-    /**
-     * Whether the user may see the project: any member of its team, unless restricted to other projects.
-     */
-    public function canAccessProject(?Project $project): bool
-    {
-        if (! $project || ! $this->teams->contains('id', $project->team_id)) {
-            return false;
-        }
-
-        return ! $this->isRestrictedInTeam($project->team_id)
-            || $this->projects()->whereKey($project->id)->exists();
-    }
-
-    public function resourceRoles()
-    {
-        return $this->hasMany(ResourceUser::class);
-    }
-
-    /**
-     * Whether the user has any project or resource role, so policies can skip the lookups otherwise.
-     */
-    public function hasAssignedRoles(): bool
-    {
-        return $this->exists && once(fn () => $this->projects()->exists() || $this->resourceRoles()->exists());
-    }
-
-    /**
-     * The user's role on the project ("none" means they only see resources given to them directly).
-     */
-    public function projectRole(Project $project): ?string
-    {
-        return once(fn () => $this->projects()->whereKey($project->id)->first()?->pivot->role);
-    }
-
-    /**
-     * The role set on this one application, service or database, if any.
-     */
-    public function resourceRoleOverride(Model $resource): ?string
-    {
-        return once(fn () => $this->resourceRoles()
-            ->where('resourceable_type', $resource->getMorphClass())
-            ->where('resourceable_id', $resource->getKey())
-            ->value('role'));
-    }
-
-    /**
-     * The user's role on a project resource: "admin" for team admins and owners, then the resource's own
-     * role, then the project role. Members without any assignment keep the team "member" role, and members
-     * restricted to projects get null (no access).
-     */
-    public function effectiveRoleOn(Project $project, ?Model $resource = null): ?string
-    {
-        if ($this->isAdminOfTeam($project->team_id)) {
-            return 'admin';
-        }
-        if (! $this->teams->contains('id', $project->team_id)) {
-            return null;
-        }
-
-        $role = $this->hasAssignedRoles()
-            ? (($resource ? $this->resourceRoleOverride($resource) : null) ?? $this->projectRole($project))
-            : null;
-
-        return $role ?? ($this->isRestrictedInTeam($project->team_id) ? null : 'member');
-    }
-
-    /**
-     * Whether the user may deploy, start, stop and restart resources of the project.
-     */
-    public function canDeployProject(?Project $project, ?Model $resource = null): bool
-    {
-        return $project !== null
-            && in_array($this->effectiveRoleOn($project, $resource), ['admin', 'manager', 'deployer'], true);
-    }
-
-    /**
-     * Whether the user may change the configuration of a project resource (everything except deleting it).
-     */
-    public function canManageProjectResource(?Project $project, ?Model $resource = null): bool
-    {
-        return $project !== null
-            && in_array($this->effectiveRoleOn($project, $resource), ['admin', 'manager'], true);
-    }
-
     public function roleInTeam(int $teamId): ?string
     {
         $team = $this->teams->where('id', $teamId)->first();
 
         return data_get($team, 'pivot.role');
+    }
+
+    /**
+     * Check the access grants of the user (and the API token of the request) on a project, environment, or resource.
+     */
+    public function canAccess(AccessLevel $level, Model $target): bool
+    {
+        return app(AccessResolver::class)->allows($this, $level, $target);
     }
 
     /**

@@ -34,31 +34,34 @@
                 <div class="mt-4 grid gap-4 lg:grid-cols-2">
                     <x-forms.input id="email" type="email" label="Email address"
                         placeholder="teammate@example.com" required />
-                    <x-forms.listbox id="role" label="Role" live :options="array_values(array_filter([
-                        auth()->user()->role() === 'owner' ? ['value' => 'owner', 'label' => 'Owner'] : null,
-                        ['value' => 'admin', 'label' => 'Admin'],
-                        ['value' => 'member', 'label' => 'Member'],
-                    ]))" />
-                </div>
-                @if ($role === 'member')
-                    <div class="mt-4 grid gap-4 lg:grid-cols-2">
-                        <x-forms.listbox id="project" label="Limit to project (optional)" live placeholder="All team projects"
-                            :options="array_merge([['value' => '', 'label' => 'All team projects']], \App\Models\Project::ownedByCurrentTeam()->get(['id', 'name'])->map(fn ($p) => ['value' => (string) $p->id, 'label' => $p->name])->all())" />
-                        @if (filled($project))
-                            <x-forms.listbox id="projectRole" label="Project access" :options="[
-                                ['value' => 'viewer', 'label' => 'Viewer'],
-                                ['value' => 'deployer', 'label' => 'Deployer (deploy, start, stop, restart)'],
-                                ['value' => 'manager', 'label' => 'Manager (also edit settings, no delete)'],
-                            ]" />
-                        @endif
+                    <div class="flex items-end gap-2">
+                        <div class="min-w-0 flex-1">
+                            <x-forms.listbox id="role" label="Role" :options="array_values(array_filter([
+                                auth()->user()->role() === 'owner' ? ['value' => 'owner', 'label' => 'Owner'] : null,
+                                ['value' => 'admin', 'label' => 'Admin'],
+                                ['value' => 'member', 'label' => 'Member'],
+                            ]))" />
+                        </div>
+                        <div x-show="$wire.role === 'member'" class="shrink-0">
+                            <x-forms.button type="button" defaultClass="button button-highlighted"
+                                title="{{ \App\Livewire\Team\Member\Access::summary($grants) }}"
+                                wire:click="$dispatch('open-invitation-access', { access: {{ Js::from($grants) }} })">
+                                <x-reicon name="keys" class="size-3.5" />
+                                Scopes
+                            </x-forms.button>
+                        </div>
                     </div>
-                @endif
+                    <p x-show="$wire.role === 'member'" class="text-[12px] text-neutral-500 lg:col-span-2 dark:text-fg-faint">
+                        Scopes: <span class="text-neutral-700 dark:text-fg-dim">{{ \App\Livewire\Team\Member\Access::summary($grants) }}</span>
+                    </p>
+                </div>
             </x-application.settings-section>
         </form>
 
+        {{-- Fork: invite a whole list with the role and scopes chosen above. --}}
         <form wire:submit="bulkInvite(false)" class="mt-6">
             <x-application.settings-section title="Invite a list"
-                description="Paste one email per line (or separated by commas). They all get the role and project chosen above.">
+                description="Paste one email per line (or separated by commas). They all get the role and scopes chosen above.">
                 <x-slot:actions>
                     @if (is_transactional_emails_enabled())
                         <x-forms.button type="button" wire:click.prevent="bulkInvite(true)">

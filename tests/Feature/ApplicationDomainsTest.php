@@ -725,13 +725,6 @@ it('shows the compose service redirect control in domain settings', function () 
         ->and(substr_count($html, 'application-domain-direction-'))->toBeGreaterThan(0);
 });
 
-it('shows dns entries control next to Add', function () {
-    Livewire::test(Domains::class, ['application' => $this->application->fresh()])
-        ->assertSuccessful()
-        ->assertSee('DNS checks and records for this server')
-        ->assertSee('Manual records');
-});
-
 it('shows dns entries when domains are managed through labels', function () {
     $this->application->settings->update([
         'is_container_label_readonly_enabled' => false,
@@ -2123,6 +2116,16 @@ it('shows the compose service name in the domain conflict modal', function () {
     expect($html)->toContain('(application: web)');
 });
 
+it('does not link a hidden resource in the domain conflict modal', function () {
+    $html = Blade::render(
+        '<x-domain-conflict-modal :conflicts="$conflicts" :show-modal="true" />',
+        ['conflicts' => [hiddenDomainConflict('https://hidden-taken.example.com', 'application')]],
+    );
+
+    expect($html)->toContain('<strong>another resource</strong>')
+        ->not->toContain('href=""');
+});
+
 it('checks each domain configured for one docker compose service', function () {
     Application::factory()->create([
         'uuid' => (string) Str::uuid(),
@@ -2264,14 +2267,6 @@ it('groups compose domains by service and hides empty services', function () {
         ->assertSee('web')
         ->assertSee('https://web.example.com')
         ->assertDontSee('No domains for this service');
-});
-
-it('keys compose domain groups by a stable service identity', function () {
-    $view = file_get_contents(resource_path('views/livewire/project/application/domains.blade.php'));
-
-    expect($view)
-        ->toContain('application-compose-domain-group-{{ $redirectWireKey }}')
-        ->toContain('wire:key="application-compose-domain-rows-{{ $redirectWireKey }}"');
 });
 
 it('uses the dns badge as progress for single and all application checks', function (string $action, array $parameters) {

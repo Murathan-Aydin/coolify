@@ -2,15 +2,13 @@
 
 namespace App\Policies;
 
+use App\Enums\AccessLevel;
 use App\Models\ApplicationPreview;
 use App\Models\User;
-use App\Policies\Concerns\ChecksProjectAccess;
 use Illuminate\Auth\Access\Response;
 
 class ApplicationPreviewPolicy
 {
-    use ChecksProjectAccess;
-
     /**
      * Determine whether the user can view any models.
      */
@@ -24,9 +22,7 @@ class ApplicationPreviewPolicy
      */
     public function view(User $user, ApplicationPreview $applicationPreview): bool
     {
-        $teamId = $this->getTeamId($applicationPreview);
-
-        return $teamId !== null && $user->teams->contains('id', $teamId);
+        return $this->allows($user, AccessLevel::Read, $applicationPreview);
     }
 
     /**
@@ -42,13 +38,7 @@ class ApplicationPreviewPolicy
      */
     public function update(User $user, ApplicationPreview $applicationPreview): Response
     {
-        $teamId = $this->getTeamId($applicationPreview);
-
-        if ($teamId === null) {
-            return Response::deny('Application preview team not found.');
-        }
-
-        if ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $applicationPreview->application)) {
+        if ($this->allows($user, AccessLevel::Write, $applicationPreview)) {
             return Response::allow();
         }
 
@@ -60,9 +50,7 @@ class ApplicationPreviewPolicy
      */
     public function delete(User $user, ApplicationPreview $applicationPreview): bool
     {
-        $teamId = $this->getTeamId($applicationPreview);
-
-        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $applicationPreview->application));
+        return $this->allows($user, AccessLevel::Delete, $applicationPreview);
     }
 
     /**
@@ -86,13 +74,13 @@ class ApplicationPreviewPolicy
      */
     public function deploy(User $user, ApplicationPreview $applicationPreview): bool
     {
-        $teamId = $this->getTeamId($applicationPreview);
-
-        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canDeployProjectOf($user, $applicationPreview->application));
+        return $this->allows($user, AccessLevel::Deploy, $applicationPreview);
     }
 
-    private function getTeamId(ApplicationPreview $applicationPreview): ?int
+    private function allows(User $user, AccessLevel $level, ApplicationPreview $applicationPreview): bool
     {
-        return $applicationPreview->application?->team()?->id;
+        $application = $applicationPreview->application;
+
+        return $application !== null && $user->canAccess($level, $application);
     }
 }

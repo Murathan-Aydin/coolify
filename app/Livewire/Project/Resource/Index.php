@@ -5,6 +5,8 @@ namespace App\Livewire\Project\Resource;
 use App\Livewire\Concerns\RemembersCanvasView;
 use App\Models\Environment;
 use App\Models\Project;
+use App\Services\ImageScan\ResourceScans;
+use App\Services\ImageScan\VulnerabilityMarkers;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Blade;
 use Livewire\Component;
@@ -44,6 +46,9 @@ class Index extends Component
     protected Collection $sqlites;
 
     protected Collection $services;
+
+    /** @var array<string, array{status: string, text: string, label: string, tooltip: ?string}> */
+    private array $markers = [];
 
     public function mount(): void
     {
@@ -164,17 +169,15 @@ class Index extends Component
 
             return $service;
         });
-
-        // Members can be given "no access" on single resources (fork): list only what they may open.
-        if (auth()->user()->hasAssignedRoles()) {
-            foreach (['applications', 'postgresqls', 'redis', 'mongodbs', 'mysqls', 'mariadbs', 'keydbs', 'dragonflies', 'clickhouses', 'sqlites', 'services'] as $property) {
-                $this->{$property} = $this->{$property}->filter(fn ($resource) => auth()->user()->can('view', $resource))->values();
-            }
-        }
     }
 
     public function render()
     {
+        $this->markers = VulnerabilityMarkers::for(collect([
+            $this->applications, $this->postgresqls, $this->redis, $this->mongodbs, $this->mysqls, $this->mariadbs,
+            $this->keydbs, $this->dragonflies, $this->clickhouses, $this->sqlites, $this->services,
+        ])->flatten(1));
+
         return view('livewire.project.resource.index', [
             'applications' => $this->applications,
             'postgresqls' => $this->postgresqls,
@@ -228,6 +231,7 @@ class Index extends Component
                 'id' => $tag->id,
                 'name' => $tag->name,
             ])->values()->toArray(),
+            'security' => $this->markers[ResourceScans::key($item)] ?? null,
         ])->values()->toArray();
     }
 }

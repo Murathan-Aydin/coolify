@@ -18,6 +18,7 @@ use App\Models\ServiceApplication;
 use App\Models\StandaloneDocker;
 use App\Models\SwarmDocker;
 use App\Services\Dns\ManagedDnsRecordCleanup;
+use App\Services\Dns\ResourceDnsRecords;
 use App\Support\ValidationPatterns;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -71,24 +72,21 @@ class ServicesController extends Controller
                 'value',
                 'real_value',
             ]);
-            $this->exposeNestedServerSecrets($service);
+            if (canReadServerSecretsFromApi()) {
+                $this->exposeNestedServerSecrets($service);
+            }
         }
 
         if ($service->is_shown_once ?? false) {
             $service->makeHidden(['value', 'real_value']);
         }
 
-        $payload = serializeApiResponse($service);
-        if ($service instanceof Service && filled(data_get($payload, 'docker_compose'))) {
-            $payload['docker_compose'] = redactLockedValuesInGeneratedCompose($payload['docker_compose'], $service);
-        }
-
-        return $payload;
+        return redactLockedApiResourceValues($service, serializeApiResponse($service));
     }
 
     /**
      * Expose sensitive fields on eager-loaded nested Server + ServerSetting
-     * relations for callers with the `read:sensitive` or `root` token ability.
+     * relations for tokens that can read server secrets (`canReadServerSecretsFromApi()`).
      * Handles both single models and Eloquent Collections (the listing endpoint
      * passes a Collection of Services per project to removeSensitiveData()).
      */
@@ -274,7 +272,7 @@ class ServicesController extends Controller
         }
         $projects = Project::where('team_id', $teamId)->get();
         $services = collect();
-        $serviceRelations = $request->attributes->get('can_read_sensitive', false) === true
+        $serviceRelations = canReadServerSecretsFromApi()
             ? ['destination.server.settings']
             : [];
 
@@ -404,8 +402,6 @@ class ServicesController extends Controller
             return invalidTokenResponse();
         }
 
-        $this->authorize('create', Service::class);
-
         if ($request->boolean('instant_deploy')) {
             abort_unless($request->user()->tokenCan('deploy') || $request->user()->tokenCan('root'), 403, 'Missing required permissions: deploy');
         }
@@ -422,8 +418,8 @@ class ServicesController extends Controller
             'environment_uuid' => 'string|nullable',
             'server_uuid' => 'string|required',
             'destination_uuid' => 'string|nullable',
-            'name' => 'string|max:255',
-            'description' => 'string|nullable',
+            'name' => ValidationPatterns::nameRules(required: false, nullable: false),
+            'description' => ValidationPatterns::descriptionRules(),
             'instant_deploy' => 'boolean',
             'connect_to_docker_network' => 'boolean',
             'urls' => 'array|nullable',
@@ -437,6 +433,7 @@ class ServicesController extends Controller
             'tags.*' => 'string|min:2',
         ];
         $validationMessages = [
+            ...ValidationPatterns::combinedMessages(),
             'urls.*.array' => 'An item in the urls array has invalid fields. Only name and url fields are supported.',
         ];
         $validator = Validator::make($request->all(), $validationRules, $validationMessages);
@@ -488,10 +485,12 @@ class ServicesController extends Controller
         if (! $environment) {
             return response()->json(['message' => 'Environment not found.'], 404);
         }
+        $this->authorize('create', [Service::class, $environment]);
         $server = Server::whereTeamId($teamId)->whereUuid($serverUuid)->first();
         if (! $server) {
             return response()->json(['message' => 'Server not found.'], 404);
         }
+        $this->authorize('placeResource', $server);
         if (! $server->canHostResources()) {
             return response()->json([
                 'message' => 'Validation failed.',
@@ -578,8 +577,7 @@ class ServicesController extends Controller
                             $command = $value->after('SERVICE_')->beforeLast('_');
                             $generatedValue = generateEnvValue($command->value(), $service);
                         }
-                        EnvironmentVariable::create([
-                            'key' => $key,
+                        $service->environment_variables()->updateOrCreate(['key' => $key], [
                             'value' => $generatedValue,
                             'resourceable_id' => $service->id,
                             'resourceable_type' => $service->getMorphClass(),
@@ -616,6 +614,8 @@ class ServicesController extends Controller
                     $this->attachTagsToResource($service, $request->tags, $teamId);
                 }
 
+                app(ResourceDnsRecords::class)->queueAutomaticRecords($service, []);
+
                 if ($instantDeploy) {
                     StartService::dispatch($service);
                 }
@@ -644,8 +644,8 @@ class ServicesController extends Controller
                 'environment_uuid' => 'string|nullable',
                 'server_uuid' => 'string|required',
                 'destination_uuid' => 'string',
-                'name' => 'string|max:255',
-                'description' => 'string|nullable',
+                'name' => ValidationPatterns::nameRules(required: false, nullable: false),
+                'description' => ValidationPatterns::descriptionRules(),
                 'instant_deploy' => 'boolean',
                 'connect_to_docker_network' => 'boolean',
                 'docker_compose_raw' => 'string|required',
@@ -660,6 +660,7 @@ class ServicesController extends Controller
                 'tags.*' => 'string|min:2',
             ];
             $validationMessages = [
+                ...ValidationPatterns::combinedMessages(),
                 'urls.*.array' => 'An item in the urls array has invalid fields. Only name and url fields are supported.',
             ];
             $validator = Validator::make($request->all(), $validationRules, $validationMessages);
@@ -697,10 +698,12 @@ class ServicesController extends Controller
             if (! $environment) {
                 return response()->json(['message' => 'Environment not found.'], 404);
             }
+            $this->authorize('create', [Service::class, $environment]);
             $server = Server::whereTeamId($teamId)->whereUuid($serverUuid)->first();
             if (! $server) {
                 return response()->json(['message' => 'Server not found.'], 404);
             }
+            $this->authorize('placeResource', $server);
             if (! $server->canHostResources()) {
                 return response()->json([
                     'message' => 'Validation failed.',
@@ -803,6 +806,8 @@ class ServicesController extends Controller
                 $this->attachTagsToResource($service, $request->tags, $teamId);
             }
 
+            app(ResourceDnsRecords::class)->queueAutomaticRecords($service, []);
+
             if ($instantDeploy) {
                 StartService::dispatch($service);
             }
@@ -883,7 +888,7 @@ class ServicesController extends Controller
         $this->authorize('view', $service);
 
         $serviceRelations = ['applications', 'databases'];
-        if ($request->attributes->get('can_read_sensitive', false) === true) {
+        if (canReadServerSecretsFromApi()) {
             $serviceRelations[] = 'destination.server.settings';
         }
 
@@ -1245,8 +1250,8 @@ class ServicesController extends Controller
         $allowedFields = ['name', 'description', 'instant_deploy', 'docker_compose_raw', 'connect_to_docker_network', 'urls', 'force_domain_override', 'is_container_label_escape_enabled', 'redact_all_env_values_in_logs', 'include_coolify_default_variables'];
 
         $validationRules = [
-            'name' => 'string|max:255',
-            'description' => 'string|nullable',
+            'name' => ValidationPatterns::nameRules(required: false, nullable: false),
+            'description' => ValidationPatterns::descriptionRules(),
             'instant_deploy' => 'boolean',
             'connect_to_docker_network' => 'boolean',
             'docker_compose_raw' => 'string|nullable',
@@ -1260,6 +1265,7 @@ class ServicesController extends Controller
             'include_coolify_default_variables' => 'boolean',
         ];
         $validationMessages = [
+            ...ValidationPatterns::combinedMessages(),
             'urls.*.array' => 'An item in the urls array has invalid fields. Only name and url fields are supported.',
         ];
         $validator = Validator::make($request->all(), $validationRules, $validationMessages);
@@ -1342,6 +1348,7 @@ class ServicesController extends Controller
         }
         // URLs of some containers can be saved before a later container fails, so release before any error response.
         $this->queueReleaseOfRemovedServiceHostnames($service, $previousDnsHostnames, (int) $teamId);
+        app(ResourceDnsRecords::class)->queueAutomaticRecords($service, array_merge(...array_values($previousDnsHostnames)));
         if ($urlResult !== null) {
             if (isset($urlResult['errors'])) {
                 return response()->json([
@@ -1489,7 +1496,7 @@ class ServicesController extends Controller
                             'value' => ['type' => 'string', 'description' => 'The value of the environment variable.'],
                             'is_literal' => ['type' => 'boolean', 'description' => 'The flag to indicate if the environment variable is a literal, nothing espaced.'],
                             'is_multiline' => ['type' => 'boolean', 'description' => 'The flag to indicate if the environment variable is multiline.'],
-                            'is_shown_once' => ['type' => 'boolean', 'description' => 'If true, the saved value is hidden in the UI and API responses. MCP never returns environment variable values.'],
+                            'is_shown_once' => ['type' => 'boolean', 'description' => 'If true, the saved value is hidden in the UI and API responses. A lock is permanent: false does not unlock a locked variable, but a new value can still replace the locked one. MCP never returns environment variable values.'],
                         ],
                     ),
                 ),
@@ -1581,14 +1588,19 @@ class ServicesController extends Controller
         if ($request->has('comment')) {
             $env->comment = $request->comment;
         }
-        $env->save();
+        // One audit row with the service context, instead of a second row from the model.
+        $env->withoutAuditLogging(fn () => $env->save());
+        $changedFields = auditSavedFields($env);
 
-        auditLog('api.service.env_updated', [
-            'team_id' => $teamId,
-            'service_uuid' => $service->uuid,
-            'env_uuid' => $env->uuid,
-            'env_key' => $env->key,
-        ]);
+        if ($changedFields !== []) {
+            auditLog('api.service.env_updated', [
+                'team_id' => $teamId,
+                'service_uuid' => $service->uuid,
+                'env_uuid' => $env->uuid,
+                'env_key' => $env->key,
+                'changed_fields' => $changedFields,
+            ]);
+        }
 
         return response()->json($this->removeSensitiveData($env))->setStatusCode(201);
     }
@@ -1632,7 +1644,7 @@ class ServicesController extends Controller
                                         'value' => ['type' => 'string', 'description' => 'The value of the environment variable.'],
                                         'is_literal' => ['type' => 'boolean', 'description' => 'The flag to indicate if the environment variable is a literal, nothing espaced.'],
                                         'is_multiline' => ['type' => 'boolean', 'description' => 'The flag to indicate if the environment variable is multiline.'],
-                                        'is_shown_once' => ['type' => 'boolean', 'description' => 'If true, the saved value is hidden in the UI and API responses. MCP never returns environment variable values.'],
+                                        'is_shown_once' => ['type' => 'boolean', 'description' => 'If true, the saved value is hidden in the UI and API responses. A lock is permanent: false does not unlock a locked variable, but a new value can still replace the locked one. MCP never returns environment variable values.'],
                                     ],
                                 ),
                             ],
@@ -1764,7 +1776,7 @@ class ServicesController extends Controller
                         'value' => ['type' => 'string', 'description' => 'The value of the environment variable.'],
                         'is_literal' => ['type' => 'boolean', 'description' => 'The flag to indicate if the environment variable is a literal, nothing espaced.'],
                         'is_multiline' => ['type' => 'boolean', 'description' => 'The flag to indicate if the environment variable is multiline.'],
-                        'is_shown_once' => ['type' => 'boolean', 'description' => 'If true, the saved value is hidden in the UI and API responses. MCP never returns environment variable values.'],
+                        'is_shown_once' => ['type' => 'boolean', 'description' => 'If true, the saved value is hidden in the UI and API responses. A lock is permanent: false does not unlock a locked variable, but a new value can still replace the locked one. MCP never returns environment variable values.'],
                     ],
                 ),
             ),
@@ -3043,7 +3055,7 @@ class ServicesController extends Controller
             return response()->json(['message' => 'Service not found.'], 404);
         }
 
-        $this->authorize('update', $service);
+        $this->authorize('delete', $service);
 
         $storageUuid = $request->route('storage_uuid');
 
@@ -3298,9 +3310,9 @@ class ServicesController extends Controller
 
         $validator = customApiValidator($request->all(), [
             'destination_uuid' => 'required|string',
-            'name' => 'string|max:255|nullable',
+            'name' => ValidationPatterns::nameRules(required: false),
             'clone_volumes' => 'boolean',
-        ]);
+        ], ValidationPatterns::combinedMessages());
         $allowedFields = ['destination_uuid', 'name', 'clone_volumes'];
         $extraFields = array_diff(array_keys($request->all()), $allowedFields);
         if ($validator->fails() || ! empty($extraFields)) {
@@ -3321,6 +3333,7 @@ class ServicesController extends Controller
         }
 
         $this->authorize('update', $service);
+        $this->authorize('create', [Service::class, $service->environment]);
 
         if ($request->boolean('clone_volumes') && $response = $this->deployAbilityForbiddenResponse($request, 'Cloning volume data stops and starts the source resource, so it needs a token with the deploy permission.')) {
             return $response;
@@ -3332,6 +3345,7 @@ class ServicesController extends Controller
         if (! $destination || ! $destination->server?->canHostResources()) {
             return response()->json(['message' => 'Destination not found.'], 404);
         }
+        $this->authorize('placeResource', $destination->server);
 
         $uuid = new_public_id();
         $name = $request->filled('name')

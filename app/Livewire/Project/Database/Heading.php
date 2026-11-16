@@ -136,7 +136,7 @@ class Heading extends Component
     public function stop()
     {
         try {
-            $this->authorize('deploy', $this->database);
+            $this->authorize('manage', $this->database);
 
             $this->dispatch('info', 'Gracefully stopping database.');
             StopDatabase::dispatch($this->database, false, $this->docker_cleanup);
@@ -149,7 +149,7 @@ class Heading extends Component
     public function restart()
     {
         try {
-            $this->authorize('deploy', $this->database);
+            $this->authorize('manage', $this->database);
 
             $activity = RestartDatabase::run($this->database);
             if (is_string($activity)) {
@@ -170,7 +170,7 @@ class Heading extends Component
     public function start()
     {
         try {
-            $this->authorize('deploy', $this->database);
+            $this->authorize('manage', $this->database);
 
             $activity = StartDatabase::run($this->database);
             if (is_string($activity)) {

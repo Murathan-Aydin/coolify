@@ -26,8 +26,10 @@ On ne peut pas le déclencher au moment exact d'un push officiel : GitHub ne pr�
 | Situation | Ce qui se passe | Ce que je fais |
 |---|---|---|
 | Pas de nouvelle version | Le run se termine en vert, sans e-mail. | Rien. |
-| Nouvelle version, sans conflit | Une PR « Sync with upstream Coolify » s'ouvre de `upstream-sync` vers `main`, avec la liste des commits de la version. Elle m'est assignée et ma review est demandée, donc je reçois un e-mail. Si une version plus récente sort avant que je fusionne, un commentaire me mentionne, et je reçois un nouvel e-mail. | Je suis la section « Valider une mise à jour », puis je fusionne la PR. |
-| Conflit | Le run échoue en rouge, GitHub m'envoie un e-mail et le résumé du run liste les fichiers en conflit. L'e-mail revient toutes les 6 h tant que ce n'est pas réglé. | Je suis la section « Conflits ». |
+| Nouvelle version, sans conflit | Les tests tournent, puis une PR « Sync with upstream Coolify » s'ouvre de `upstream-sync` vers `main`, avec le résultat des tests et la liste des commits de la version. Elle m'est assignée et ma review est demandée, donc je reçois un e-mail. Si une version plus récente sort avant que je fusionne, un commentaire me mentionne, et je reçois un nouvel e-mail. | Je suis la section « Valider une mise à jour », puis je fusionne la PR. |
+| Conflit, résolu par Claude | Claude résout les conflits (voir « Résolution des conflits par Claude »), les tests tournent, puis la PR s'ouvre avec « (conflicts resolved by Claude) » dans le titre, la liste des fichiers et les notes de Claude. | Je relis surtout les fichiers listés, puis « Valider une mise à jour ». |
+| Conflit, tests en échec | La PR s'ouvre en brouillon (draft) avec la fin du journal des tests, et le run passe en rouge (e-mail). | Je récupère la branche `upstream-sync` et je corrige, ou je repars de la section « Conflits ». |
+| Conflit que Claude n'a pas résolu (ou pas de token Claude) | Le run échoue en rouge, GitHub m'envoie un e-mail et le résumé du run liste les fichiers en conflit. L'e-mail revient toutes les 6 h tant que ce n'est pas réglé. | Je suis la section « Conflits ». |
 
 Le robot ne touche jamais `main` directement. Rien n'est déployé sans moi.
 
@@ -46,16 +48,40 @@ Les e-mails passent par les notifications GitHub. Il faut vérifier que **Settin
 4. Recommandé : créer un token GitHub (fine-grained, droits *Contents*, *Pull requests* et *Workflows* en écriture sur ce dépôt),
    puis l'ajouter comme secret `SYNC_TOKEN`. Sans lui, la synchronisation échoue chaque fois que l'officiel modifie
    un fichier de `.github/workflows/`, car le token par défaut ne peut pas pousser ces fichiers.
+5. Pour que Claude résolve les conflits : sur mon Mac, lancer `claude setup-token` (il faut un abonnement Claude Pro,
+   Max, Team ou Enterprise), puis ajouter le token affiché comme secret `CLAUDE_CODE_OAUTH_TOKEN`
+   (**Settings → Secrets and variables → Actions → New repository secret**). Le token est valable un an : le refaire
+   à l'expiration. Ne pas ajouter de secret `ANTHROPIC_API_KEY`, il passerait avant l'abonnement.
+
+### Résolution des conflits par Claude
+Quand la fusion d'une version officielle a des conflits, le workflow lance Claude Code (`anthropics/claude-code-action`,
+modèle Opus, avec mon abonnement) dans la fusion en cours. Claude lit ce fichier, en particulier « Mes modifications » et
+« Règles pour limiter les conflits », regarde les commits officiels de chaque fichier, résout, lance les tests des
+fonctionnalités du fork, puis écrit ses notes en français. Elles arrivent dans la PR.
+
+Pour que ce soit sans risque :
+- Claude travaille dans un job qui ne peut que **lire** le dépôt. Il ne peut ni committer, ni pousser.
+  Un second job, sans Claude, pousse `upstream-sync` et ouvre la PR. `main` n'est jamais modifiée sans moi.
+- Les tests (`tests/Feature/Fork`, invitations, policies, accès officiels) tournent après la résolution. S'ils échouent, la PR
+  reste en brouillon.
+- Quand l'officiel livre une fonctionnalité qui fait la même chose qu'une des miennes, la consigne est de garder la
+  version officielle et d'y adapter mon code. Claude le signale dans ses notes. C'est ce qui s'est passé à la 4.7 pour l'accès par projet.
+
+La résolution consomme le quota de mon abonnement Claude (le job a une limite de 2 h).
 
 ## Valider une mise à jour (PR sans conflit)
 ```bash
 cd ~/dev/coolify
 git fetch origin
 git switch upstream-sync && git pull
+composer install && npm ci && npm run build
+php -d memory_limit=2G vendor/bin/pest --compact tests/Feature/Fork tests/Feature/TeamInvitationHandlingTest.php tests/Unit/Policies tests/Feature/Access
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 docker exec coolify php artisan migrate
-docker exec coolify ./vendor/bin/pest tests/Feature/Team tests/Unit/Policies tests/Feature/TeamInvitationHandlingTest.php
 ```
+Les tests tournent sur le Mac (PHP de Herd, SQLite en mémoire), **jamais dans un conteneur de dev** : leur
+variable `DB_CONNECTION=pgsql` peut faire vider ma base de dev par les tests. Si `node_modules` appartient au conteneur
+Vite de dev (binaires Linux), faire l'installation dans un `git worktree` à part.
 Si les tests passent et que l'interface fonctionne sur http://localhost:8000, je fusionne la PR sur GitHub.
 Ensuite, je crée la nouvelle version :
 ```bash
@@ -79,8 +105,8 @@ leur nouveau code et ma modification. Ensuite :
 ```bash
 git add <fichiers>
 git commit                       # termine la fusion
+php -d memory_limit=2G vendor/bin/pest --compact tests/Feature/Fork tests/Feature/TeamInvitationHandlingTest.php tests/Unit/Policies tests/Feature/Access
 docker exec coolify php artisan migrate
-docker exec coolify ./vendor/bin/pest tests/Feature/Team tests/Unit/Policies
 git switch main && git merge update-upstream && git push origin main
 git branch -d update-upstream
 ```
@@ -97,12 +123,25 @@ Pour abandonner en cours de route : `git merge --abort`.
 ## Mes modifications (à vérifier après chaque mise à jour)
 | Fonctionnalité | Fichiers principaux | Tests |
 |---|---|---|
-| Correctifs d'invitation | `app/Livewire/Team/InviteLink.php`, `app/Http/Controllers/Controller.php` | `tests/Feature/TeamInvitationHandlingTest.php` |
-| Accès par projet et par ressource (viewer / deployer / manager, exceptions par appli) + blocage des pages d'équipe pour les membres restreints | `app/Policies/Concerns/ChecksProjectAccess.php`, `app/Http/Middleware/RestrictProjectScopedMembers.php`, `app/Models/ResourceUser.php`, policies Project/Environment/Application/Database/Service, `app/Livewire/Project/Members.php`, `app/Models/User.php` (`canAccessProject`), `app/Models/Project.php` (`ownedByCurrentTeam`) | `tests/Feature/Team/ProjectScopedMembersTest.php` |
-| Invitation en masse | `app/Livewire/Team/InviteLink.php` (`bulkInvite`), `app/Models/TeamInvitation.php` (`attachUser`) | `tests/Feature/TeamInvitationHandlingTest.php` |
+| Correctifs d'invitation : nouveau lien de connexion pour un membre qui n'a jamais défini son mot de passe, messages d'erreur plus clairs | `app/Livewire/Team/InviteLink.php` (`isLockedOutMember`), `app/Http/Controllers/Controller.php` | `tests/Feature/TeamInvitationHandlingTest.php` |
+| Invitation en masse (jusqu'à 100 adresses, même rôle et mêmes accès « Scopes » que l'invitation simple) | `app/Livewire/Team/InviteLink.php` (`bulkInvite`), `resources/views/livewire/team/invite-link.blade.php` | `tests/Feature/TeamInvitationHandlingTest.php` |
+| Apparence : image de fond, Liquid Glass, thèmes Apple Dark / Apple Light | `resources/views/layouts/base.blade.php` (`applyBackgroundImage`, `applyGlass`, presets), `resources/views/components/theme-controls.blade.php`, `resources/css/app.css` | à vérifier à la main sur la page Appearance |
+| Conversion des anciens rôles de projet en accès officiels (voir ci-dessous) | `database/migrations/2026_11_16_000000_convert_fork_project_roles_to_access_grants.php` | `tests/Feature/Fork/ForkAccessConversionTest.php` |
 
-Fichiers officiels que je modifie, donc à surveiller en cas de conflit : `InviteLink.php`, `Controller.php`, `User.php`, `Project.php`,
-`Team.php`, les 5 policies et les vues `team/invite-link`, `team/member`, `project/edit`, `project/database/heading`.
+**Accès par projet et par ressource : c'est maintenant la fonctionnalité officielle.** Coolify 4.7 a ajouté les « scoped grants »
+(**Team → Members → Scopes** : accès par équipe, projet, environnement ou ressource, niveaux Read, Read secrets, Deploy,
+Write, Delete). Mon ancien système (viewer / deployer / manager, `project_user`, `resource_user`, `restricted_to_projects`)
+a été retiré à la fusion de la v4.7.5. La migration du 2026-11-16 convertit les rôles existants : viewer → Read,
+deployer → Deploy, manager → Write (sans Delete), et les invitations en attente limitées à un projet. Deux différences :
+- Read ne montre pas les valeurs des secrets : pour qu'un ancien viewer les voie, lui ajouter « Read secrets » ;
+- un rôle plus bas sur une seule ressource est converti ressource par ressource. Les ressources créées ensuite dans ce projet
+  ne sont donc pas données automatiquement. Un membre non restreint garde la lecture de toute l'équipe : un « none » ne peut plus
+  lui cacher une ressource. Ces cas sont écrits dans `storage/logs/laravel.log` (« Fork access conversion »).
+
+Les anciennes tables restent en base, inutilisées, pour pouvoir vérifier la conversion.
+
+Fichiers officiels que je modifie, donc à surveiller en cas de conflit : `InviteLink.php`, `Controller.php`, les vues
+`team/invite-link`, `layouts/base`, `components/theme-controls` et `resources/css/app.css`.
 
 ## Installer le fork sur un serveur
 

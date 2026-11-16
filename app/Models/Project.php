@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Traits\Auditable;
 use App\Traits\ClearsGlobalSearchCache;
 use App\Traits\HasSafeStringAttribute;
+use App\Traits\ScopedByAccessGrants;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Collection;
 use OpenApi\Attributes as OA;
@@ -22,7 +23,7 @@ use OpenApi\Attributes as OA;
 class Project extends BaseModel
 {
     use Auditable, HasFactory;
-    use ClearsGlobalSearchCache;
+    use ClearsGlobalSearchCache, ScopedByAccessGrants;
     use HasSafeStringAttribute;
 
     protected $fillable = [
@@ -47,15 +48,7 @@ class Project extends BaseModel
      */
     public static function ownedByCurrentTeam()
     {
-        $teamId = currentTeam()->id;
-        $user = auth()->user();
-
-        return Project::whereTeamId($teamId)
-            ->when(
-                $user && $user->isRestrictedInTeam($teamId),
-                fn ($query) => $query->whereHas('members', fn ($members) => $members->whereKey($user->id))
-            )
-            ->orderByRaw('LOWER(name)');
+        return Project::whereTeamId(currentTeam()->id)->orderByRaw('LOWER(name)');
     }
 
     /**
@@ -205,10 +198,5 @@ class Project extends BaseModel
         }
 
         return route('project.show', ['project_uuid' => $this->uuid]);
-    }
-
-    public function members()
-    {
-        return $this->belongsToMany(User::class)->withPivot('role')->withTimestamps();
     }
 }

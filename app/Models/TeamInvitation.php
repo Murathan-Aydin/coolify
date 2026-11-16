@@ -11,14 +11,14 @@ class TeamInvitation extends Model
         'uuid',
         'email',
         'role',
-        'project_id',
-        'project_role',
         'link',
         'via',
+        'access',
     ];
 
     protected $casts = [
         'link' => 'encrypted',
+        'access' => 'array',
     ];
 
     /**
@@ -27,6 +27,19 @@ class TeamInvitation extends Model
     public function setEmailAttribute(string $value): void
     {
         $this->attributes['email'] = strtolower($value);
+    }
+
+    /**
+     * Pivot attributes for the new `team_user` row. Grants apply only to the member role.
+     *
+     * @return array{role: string, access: string|null}
+     */
+    public function membershipAttributes(): array
+    {
+        return [
+            'role' => $this->role,
+            'access' => $this->role === 'member' && $this->access !== null ? json_encode($this->access) : null,
+        ];
     }
 
     public function team()
@@ -57,19 +70,5 @@ class TeamInvitation extends Model
     public function hasExpired(): bool
     {
         return $this->created_at->diffInDays(now()) > config('constants.invitation.link.expiration_days');
-    }
-
-    /**
-     * Adds the user to the team with the invited role, limited to the invited project when there is one.
-     */
-    public function attachUser(User $user): void
-    {
-        $user->teams()->attach($this->team_id, [
-            'role' => $this->role,
-            'restricted_to_projects' => $this->project_id !== null,
-        ]);
-        if ($this->project_id) {
-            $user->projects()->syncWithoutDetaching([$this->project_id => ['role' => $this->project_role ?? 'viewer']]);
-        }
     }
 }

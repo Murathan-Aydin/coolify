@@ -2,15 +2,14 @@
 
 namespace App\Policies;
 
+use App\Enums\AccessLevel;
 use App\Models\Application;
+use App\Models\Environment;
 use App\Models\User;
-use App\Policies\Concerns\ChecksProjectAccess;
 use Illuminate\Auth\Access\Response;
 
 class ApplicationPolicy
 {
-    use ChecksProjectAccess;
-
     /**
      * Determine whether the user can view any models.
      */
@@ -24,17 +23,15 @@ class ApplicationPolicy
      */
     public function view(User $user, Application $application): bool
     {
-        $teamId = $this->getTeamId($application);
-
-        return $teamId !== null && $user->teams->contains('id', $teamId) && $this->canSeeProjectOf($user, $application);
+        return $user->canAccess(AccessLevel::Read, $application);
     }
 
     /**
-     * Determine whether the user can create models.
+     * Determine whether the user can create models, in the environment when one is given.
      */
-    public function create(User $user): bool
+    public function create(User $user, ?Environment $environment = null): bool
     {
-        return $user->isAdmin();
+        return app(ResourceCreatePolicy::class)->createAny($user, $environment);
     }
 
     /**
@@ -42,13 +39,7 @@ class ApplicationPolicy
      */
     public function update(User $user, Application $application): Response
     {
-        $teamId = $this->getTeamId($application);
-
-        if ($teamId === null) {
-            return Response::deny('Application team not found.');
-        }
-
-        if ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $application)) {
+        if ($user->canAccess(AccessLevel::Write, $application)) {
             return Response::allow();
         }
 
@@ -60,9 +51,7 @@ class ApplicationPolicy
      */
     public function delete(User $user, Application $application): bool
     {
-        $teamId = $this->getTeamId($application);
-
-        return $teamId !== null && $user->isAdminOfTeam($teamId);
+        return $user->canAccess(AccessLevel::Delete, $application);
     }
 
     /**
@@ -86,13 +75,7 @@ class ApplicationPolicy
      */
     public function uploadBackup(User $user, Application $application): Response
     {
-        $teamId = $this->getTeamId($application);
-
-        if ($teamId === null) {
-            return Response::deny('Application team not found.');
-        }
-
-        if ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $application)) {
+        if ($user->canAccess(AccessLevel::Write, $application)) {
             return Response::allow();
         }
 
@@ -100,13 +83,19 @@ class ApplicationPolicy
     }
 
     /**
-     * Determine whether the user can deploy the application.
+     * Determine whether the user can deploy, restart, or stop the application.
      */
     public function deploy(User $user, Application $application): bool
     {
-        $teamId = $this->getTeamId($application);
+        return $user->canAccess(AccessLevel::Deploy, $application);
+    }
 
-        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canDeployProjectOf($user, $application));
+    /**
+     * Determine whether the user can read secret values, such as environment variable values.
+     */
+    public function viewSensitive(User $user, Application $application): bool
+    {
+        return $user->canAccess(AccessLevel::ReadSensitive, $application);
     }
 
     /**
@@ -114,13 +103,6 @@ class ApplicationPolicy
      */
     public function manageEnvironment(User $user, Application $application): bool
     {
-        $teamId = $this->getTeamId($application);
-
-        return $teamId !== null && ($user->isAdminOfTeam($teamId) || $this->canManageProjectOf($user, $application));
-    }
-
-    private function getTeamId(Application $application): ?int
-    {
-        return $application->team()?->id;
+        return $user->canAccess(AccessLevel::Write, $application);
     }
 }
