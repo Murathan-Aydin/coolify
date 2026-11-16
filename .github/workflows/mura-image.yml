@@ -47,7 +47,8 @@ jobs:
       - name: Resolve version
         id: version
         run: |
-          BASE_VERSION=$(docker run --rm -v "$(pwd):/app" -w /app php:8.2-alpine3.16 php bootstrap/getVersion.php)
+          # Since 4.7 the version lives in release.json (bootstrap/getVersion.php is gone).
+          BASE_VERSION=$(jq -er '.stable.coolify' release.json)
           echo "version=${BASE_VERSION}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
